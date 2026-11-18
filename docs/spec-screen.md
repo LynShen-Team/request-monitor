@@ -4,8 +4,8 @@
 
 OS-0. This file specifies the browser page in `web/`. The service that feeds it is specified in
 `docs/spec-service.md`. The page has two data sources: the preview (built-in sample data) and the
-network source, which reads the service. The network source reads replay data; it has no live
-events and no identification, because the service does not have them yet
+network source, which reads the service. The network source reads replay data and the visitor's
+role; it has no live events, because the service does not have them yet
 (`docs/spec-service.md` OS-S0a).
 
 OS-P1. In preview mode the page MUST NOT send any network request. It reads its data only from
@@ -100,11 +100,11 @@ OS-N1. The network source (`web/src/net/source.ts`) reads the endpoints of
 under any path of a reverse proxy. A request sends same-origin credentials, bypasses the HTTP
 cache, and fails after 15 s.
 
-OS-N2. Start. The page asks `api/meta`, `api/topology`, `api/identity`, and `api/config` at the
-same time. A failed `api/identity` means the role `guest`. A failed `api/config` means the default
-config (OS-U5). When `api/meta` or `api/topology` fails, the page shows
-`连不上数据服务，10 秒后自动重试。` with a button `现在重试`, and tries again every 10 s. The map
-stays on screen behind the message.
+OS-N2. Start. The page asks `api/identity` and `api/config`, and then, unless OS-N8 applies,
+`api/meta` and `api/topology`. A failed `api/identity` means the role `guest`. A failed
+`api/config` means the default config (OS-U5). When `api/meta` or `api/topology` fails, the page
+shows `连不上数据服务，10 秒后自动重试。` with a button `现在重试`, and tries again every 10 s. The
+map stays on screen behind the message, in the view that the address names.
 
 OS-N2a. Until a source has delivered data, the page shows no figure: a panel shows its loading
 state, a headline figure shows `—`, and no value of the range control is selected or enabled. In
@@ -112,9 +112,12 @@ particular the success rate MUST NOT read 100 %.
 
 OS-N3. Topology version (`docs/spec-service.md` OS-SH4). The indices of a replay answer refer to
 the topology of the same `version`. When a replay answer has another version than the topology in
-the page, the page fetches `api/topology`, replaces its topology and its nodes, and, if the
-replay answer does not have the new version, fetches the replay again. After 3 such rounds without
-a match the load counts as failed.
+the page, the page fetches `api/topology` and `api/identity`, takes the role of that answer (a
+visitor who signed in, or whose session ended, has another role and therefore another version),
+replaces its topology and its nodes, and, if the replay answer does not have the new version,
+fetches the replay again. After 3 such rounds without a match the load counts as failed. The page
+never changes the role by itself: the label of OS-D3a.5 and the view follow what `api/identity`
+answers.
 
 OS-N4. A replay window is fetched when it is selected and again each time the playhead restarts
 (OS-R2), so a screen that runs unattended shows new buckets. A refresh keeps the playhead.
@@ -131,6 +134,21 @@ window (OS-N4).
 
 OS-N7. With the network source the hint of the origin ranking is
 `不足 N 个客户端的城市并入省份`, where N is `minClients` of `api/meta`.
+
+OS-N8. Sign-in (`docs/spec-service.md` OS-SN5). A deployment can let no guest in. The page then
+shows a message in place of the data and no figure (OS-N2a applies):
+
+1. When. At the start, `api/identity` answers `allowed: false`, or `api/meta` or `api/topology`
+   answers `401` with `error: "login_required"`. Later, a replay request gets that answer: the
+   page drops the data it shows and starts again, which leads to the message.
+2. What. The line `这块大屏要先登录网关才能看。`; a link `去登录` to `loginUrl` of `api/identity`,
+   opened in a new tab without an opener; a button `我已登录，重新打开`; and a line that says that
+   the screen opens by itself after the sign-in. The map stays on screen behind the message.
+3. `loginUrl` becomes a link only when it is an `http:` or `https:` URL. Otherwise, and when the
+   service names none, the message has no link and says to sign in at the gateway's console.
+4. While the message is shown the page asks `api/identity` every 15 s and whenever the tab
+   becomes visible again, and starts again as soon as the answer says `allowed: true`. It does
+   not ask the data endpoints in between.
 
 ## 2. Scene
 

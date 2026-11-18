@@ -159,16 +159,28 @@ func serve(args []string) error {
 		log.Info("access.guests = false: a visitor who is not signed in to the gateway cannot open the screen")
 	}
 
+	// Live mode by replay (spec section 13).
+	var live *screen.Live
+	if cfg.LiveEnabled() {
+		live = screen.NewLive(p.adapter, p.store, p.geo, scr, screen.LiveOptions{
+			Interval: time.Duration(cfg.Live.IntervalSeconds) * time.Second,
+			Window:   time.Duration(cfg.Live.WindowMinutes) * time.Minute,
+		}, log)
+	}
+
 	var web fs.FS = webui.Dist()
 	if cfg.WebDir != "" {
 		web = os.DirFS(cfg.WebDir)
 	}
-	handler := api.New(api.Options{Config: cfg, Screen: scr, Identity: identity.New(verifier), Adapter: p.adapter, Geo: p.geo, GeoReady: p.geoReady, Backfilling: ing.Backfilling, Web: web, Log: log})
+	handler := api.New(api.Options{Config: cfg, Screen: scr, Identity: identity.New(verifier), Live: live, Adapter: p.adapter, Geo: p.geo, GeoReady: p.geoReady, Backfilling: ing.Backfilling, Web: web, Log: log})
 	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go ing.Run(ctx)
+	if live != nil {
+		go live.Run(ctx)
+	}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

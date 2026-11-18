@@ -151,7 +151,7 @@ CREATE TABLE request_logs (
   id TEXT PRIMARY KEY, request_id TEXT, user_id TEXT NOT NULL, api_key_id TEXT, model TEXT NOT NULL,
   provider_id TEXT, channel_id TEXT, is_stream INTEGER NOT NULL, status TEXT NOT NULL,
   error_code TEXT, error_message TEXT, duration_ms INTEGER, ttfb_ms INTEGER, request_ip TEXT,
-  request_kind TEXT, created_at TEXT NOT NULL, created_at_unix_ms INTEGER);
+  request_kind TEXT, created_at TEXT NOT NULL, created_at_unix_ms INTEGER, tried_providers_json TEXT);
 CREATE INDEX request_logs_time ON request_logs (created_at_unix_ms);
 `
 
@@ -252,7 +252,7 @@ func Generate(dir string, opts Options) error {
 		modelWeights[i] = m.weight
 		modelTotal += m.weight
 	}
-	insert, err := tx.Prepare(`INSERT INTO request_logs (id, request_id, user_id, api_key_id, model, provider_id, channel_id, is_stream, status, error_code, error_message, duration_ms, ttfb_ms, request_ip, request_kind, created_at, created_at_unix_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	insert, err := tx.Prepare(`INSERT INTO request_logs (id, request_id, user_id, api_key_id, model, provider_id, channel_id, is_stream, status, error_code, error_message, duration_ms, ttfb_ms, request_ip, request_kind, created_at, created_at_unix_ms, tried_providers_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -281,7 +281,7 @@ func Generate(dir string, opts Options) error {
 		model := models[pick(r, modelWeights, modelTotal)].name
 		id := fmt.Sprintf("req-%08d", i)
 		var providerID, channelID, errorCode, errorMessage any
-		var ttfb, duration any
+		var ttfb, duration, tried any
 		status := "success"
 		stream := 0
 		if r.Float64() < 0.006 {
@@ -293,11 +293,28 @@ func Generate(dir string, opts Options) error {
 		} else {
 			p := providers[pick(r, providerWeights, providerTotal)]
 			providerID, channelID = p.id, "c-"+p.id
+			// Some requests fail on another Channel of the same Group first. The gateway keeps
+			// the failed attempts with their error text; the service may take the Channel and the
+			// duration of an attempt, never the text.
+			var failed string
+			if r.Float64() < 0.04 {
+				for _, other := range providers {
+					if other.group == p.group && other.id != p.id {
+						failed = fmt.Sprintf(`{"attempt_number":1,"provider_id":%q,"channel_id":%q,"provider_name":"internal %s","channel_name":"internal %s","error":"%s attempt failed at https://secret-host.example/v1","duration_ms":%d}`,
+							other.id, "c-"+other.id, other.name, other.name, Marker, 300+r.IntN(2500))
+						break
+					}
+				}
+			}
 			if r.Float64() < p.errRate {
 				status = "error"
 				errorCode = upstreamErrors[r.IntN(len(upstreamErrors))]
 				errorMessage = Marker + " upstream said no at https://secret-host.example/v1 api_key: sk-" + Marker
-				duration = int64(lognormal(r, 1800, 1))
+				duration = int64(lognormal(r, 1800, 1)) + 3000
+				if failed != "" {
+					// Every attempt failed; the last one is on the Channel the row names.
+					tried = fmt.Sprintf(`[%s,{"attempt_number":2,"provider_id":%q,"channel_id":%q,"error":"%s last attempt failed","duration_ms":900}]`, failed, p.id, "c-"+p.id, Marker)
+				}
 			} else {
 				if r.Float64() < 0.72 {
 					stream = 1
@@ -310,14 +327,18 @@ func Generate(dir string, opts Options) error {
 				if r.Float64() < 0.0066 {
 					status = "client_gone"
 				}
+				if failed != "" {
+					duration = duration.(int64) + 3000
+					tried = fmt.Sprintf(`[%s,{"attempt_number":2,"provider_id":%q,"channel_id":%q,"outcome":"served"}]`, failed, p.id, "c-"+p.id)
+				}
 			}
 		}
-		if _, err := insert.Exec(id, "rid-"+id, "user-"+Marker, "key-"+Marker, model, providerID, channelID, stream, status, errorCode, errorMessage, duration, ttfb, nullable(ip), nil, at.UTC().Format(time.RFC3339), at.UnixMilli()); err != nil {
+		if _, err := insert.Exec(id, "rid-"+id, "user-"+Marker, "key-"+Marker, model, providerID, channelID, stream, status, errorCode, errorMessage, duration, ttfb, nullable(ip), nil, at.UTC().Format(time.RFC3339), at.UnixMilli(), tried); err != nil {
 			return err
 		}
 		if i%100 == 0 {
 			// The gateway's own health probes must not be counted.
-			if _, err := insert.Exec("probe-"+id, "rid-probe-"+id, "_monoize_probe", nil, model, providers[0].id, "c-"+providers[0].id, 0, "success", nil, nil, int64(300), nil, nil, "active_probe_connectivity", at.UTC().Format(time.RFC3339), at.UnixMilli()); err != nil {
+			if _, err := insert.Exec("probe-"+id, "rid-probe-"+id, "_monoize_probe", nil, model, providers[0].id, "c-"+providers[0].id, 0, "success", nil, nil, int64(300), nil, nil, "active_probe_connectivity", at.UTC().Format(time.RFC3339), at.UnixMilli(), nil); err != nil {
 				return err
 			}
 		}

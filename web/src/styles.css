@@ -974,12 +974,32 @@ body,
   color: var(--text-3);
   pointer-events: none;
 }
-.boot.is-failed {
+/* A message that stands in for the data: a card over the map, like the panels. */
+.boot-card {
   pointer-events: auto;
-  align-content: center;
-  gap: calc(12 * var(--px));
+  display: grid;
   justify-items: center;
+  gap: calc(14 * var(--px));
+  padding: calc(22 * var(--px)) calc(28 * var(--px));
+  border: 1px solid var(--line);
+  border-radius: calc(14 * var(--px));
+  background: var(--panel);
   color: var(--text-2);
+}
+.boot-title {
+  font-size: calc(14 * var(--px));
+  color: var(--text);
+}
+.boot-actions {
+  display: flex;
+  gap: calc(10 * var(--px));
+}
+.boot-actions a.btn {
+  text-decoration: none;
+}
+.boot-hint {
+  font-size: calc(12 * var(--px));
+  color: var(--text-3);
 }
 .ops.is-manual *,
 .ops.is-manual *::before {

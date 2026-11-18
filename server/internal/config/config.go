@@ -27,6 +27,7 @@ type Config struct {
 	Access   Access     `toml:"access"`
 	Geo      Geo        `toml:"geo"`
 	Ingest   Ingest     `toml:"ingest"`
+	Live     Live       `toml:"live"`
 	Screen   Screen     `toml:"screen"`
 	Upstream []Upstream `toml:"upstream"`
 	Dev      Dev        `toml:"dev"`
@@ -67,6 +68,16 @@ type Geo struct {
 	Language string `toml:"language"`
 	// MinClients is the number of distinct clients a region needs in a day to be shown.
 	MinClients int `toml:"min_clients"`
+}
+
+// Live is live mode by replay (spec section 13).
+type Live struct {
+	// Enabled is false to turn live mode off. Not set: on.
+	Enabled *bool `toml:"enabled"`
+	// IntervalSeconds is the pause between two reads of recent requests.
+	IntervalSeconds int `toml:"interval_seconds"`
+	// WindowMinutes is how far back each read looks; a request that runs longer is not shown live.
+	WindowMinutes int `toml:"window_minutes"`
 }
 
 type Ingest struct {
@@ -154,6 +165,12 @@ func Load(path string) (*Config, error) {
 	if cfg.Ingest.IntervalSeconds == 0 {
 		cfg.Ingest.IntervalSeconds = 30
 	}
+	if cfg.Live.IntervalSeconds == 0 {
+		cfg.Live.IntervalSeconds = 2
+	}
+	if cfg.Live.WindowMinutes == 0 {
+		cfg.Live.WindowMinutes = 15
+	}
 	return cfg, cfg.validate()
 }
 
@@ -172,6 +189,12 @@ func (c *Config) validate() error {
 	}
 	if c.Ingest.BackfillDays < 1 || c.Ingest.BackfillDays > 90 {
 		return fmt.Errorf("config: ingest.backfill_days must be between 1 and 90")
+	}
+	if c.Live.IntervalSeconds < 1 || c.Live.IntervalSeconds > 60 {
+		return fmt.Errorf("config: live.interval_seconds must be between 1 and 60")
+	}
+	if c.Live.WindowMinutes < 2 || c.Live.WindowMinutes > 120 {
+		return fmt.Errorf("config: live.window_minutes must be between 2 and 120")
 	}
 	for key, value := range map[string]string{"gateway.api_url": c.Gateway.APIURL, "access.login_url": c.Access.LoginURL} {
 		if value == "" {
@@ -200,6 +223,9 @@ func (c *Config) validate() error {
 	}
 	return nil
 }
+
+// LiveEnabled reports whether live mode is on.
+func (c *Config) LiveEnabled() bool { return c.Live.Enabled == nil || *c.Live.Enabled }
 
 // GuestsAllowed reports whether a visitor who is not signed in may open the screen.
 func (c *Config) GuestsAllowed() bool { return c.Access.Guests == nil || *c.Access.Guests }

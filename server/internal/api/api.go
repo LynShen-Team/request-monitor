@@ -24,6 +24,7 @@ type Server struct {
 	cfg         *config.Config
 	screen      *screen.Service
 	identity    *identity.Service
+	live        *screen.Live
 	caps        gateway.Capabilities
 	kind        string
 	attribution *geo.Attribution
@@ -39,7 +40,9 @@ type Options struct {
 	Config *config.Config
 	Screen *screen.Service
 	// Identity finds the visitor's role; nil means every visitor is a guest.
-	Identity    *identity.Service
+	Identity *identity.Service
+	// Live answers live events; nil means the service has no live mode.
+	Live        *screen.Live
 	Adapter     gateway.Adapter
 	Geo         geo.Resolver
 	GeoReady    bool
@@ -53,6 +56,7 @@ func New(o Options) *Server {
 		cfg:         o.Config,
 		screen:      o.Screen,
 		identity:    o.Identity,
+		live:        o.Live,
 		caps:        o.Adapter.Capabilities(),
 		kind:        o.Adapter.Kind(),
 		attribution: o.Geo.Attribution(),
@@ -64,12 +68,16 @@ func New(o Options) *Server {
 	}
 	// Without a geo database no region can be shown, whatever the gateway records.
 	s.caps.Origin = s.caps.Origin && s.geoReady
+	if s.live == nil {
+		s.caps.Live = "none"
+	}
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	s.mux.HandleFunc("/api/identity", s.json(false, s.whoami))
 	s.mux.HandleFunc("/api/config", s.json(false, s.screenConfig))
 	s.mux.HandleFunc("/api/meta", s.json(true, s.meta))
 	s.mux.HandleFunc("/api/topology", s.json(true, s.topology))
 	s.mux.HandleFunc("/api/replay", s.json(true, s.replay))
+	s.mux.HandleFunc("/api/live", s.json(true, s.liveEvents))
 	s.mux.HandleFunc("/brand/logo-day", s.logo(o.Config.Screen.LogoDayFile, o.Config.Screen.LogoNightFile))
 	s.mux.HandleFunc("/brand/logo-night", s.logo(o.Config.Screen.LogoNightFile, o.Config.Screen.LogoDayFile))
 	s.mux.HandleFunc("/", s.static)
@@ -209,6 +217,15 @@ func (s *Server) replay(r *http.Request) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"version": view.Version, "data": view.Replay[window]}, nil
+}
+
+// liveEvents answers the live events after a cursor (spec OS-SR6).
+func (s *Server) liveEvents(r *http.Request) (any, error) {
+	if s.live == nil {
+		return nil, &apiError{http.StatusNotFound, "live_unavailable"}
+	}
+	_, viewer, _ := s.visitor(r)
+	return s.live.Answer(r.Context(), viewer, r.URL.Query().Get("after"))
 }
 
 // logo serves a configured image file; fallback is used when the first is not set.

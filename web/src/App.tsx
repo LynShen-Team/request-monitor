@@ -3,7 +3,7 @@ import { Globe, Map as MapIcon, Maximize, Minimize, Moon, Sun, SunMoon } from "l
 import { DEFAULT_CONFIG, type ScreenConfig } from "./core/config";
 import { EMPTY_SNAPSHOT, OpsEngine } from "./core/engine";
 import { loadLand } from "./core/geo";
-import { ROLE_LABEL, viewerOf, type Role } from "./core/identity";
+import { LoginRequired, ROLE_LABEL, viewerOf, type Role } from "./core/identity";
 import type { ReplayWindow } from "./core/model";
 import type { ViewMode } from "./core/view";
 import { openSources, type Sources } from "./sources";
@@ -57,6 +57,8 @@ export default function App() {
   // The data source did not answer at start; `attempt` counts the tries.
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // Set when the data source lets no guest in and the visitor is not signed in to the gateway.
+  const [gate, setGate] = useState<{ loginUrl: string | null } | null>(null);
   // The map node under the pointer and the node whose detail card is open.
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -68,6 +70,8 @@ export default function App() {
     const root = rootRef.current!;
     const scene = new Scene3D(canvasRef.current!, overlayRef.current!, theme);
     sceneRef.current = scene;
+    // The view of the address is on screen before any data: a message can be all that is shown.
+    scene.snapView(initialView);
     scene.onLabel = (id, event) => {
       if (event === "enter") setHoverId(id);
       else if (event === "leave") setHoverId((current) => (current === id ? null : current));
@@ -87,6 +91,8 @@ export default function App() {
     observer.observe(root);
     let virtualNow = Number(params.get("t")) || Date.now();
     let retry = 0;
+    let poll = 0;
+    let onVisible: (() => void) | null = null;
 
     void (async () => {
       const land = await loadLand();
@@ -95,21 +101,46 @@ export default function App() {
       let opened: Sources;
       try {
         opened = await openSources(params, manual ? virtualNow : Date.now());
-      } catch {
+      } catch (error) {
         if (disposed) return;
-        // The service did not answer: say so and try again, instead of showing an empty screen.
-        setFailed(true);
-        retry = window.setTimeout(() => setAttempt((n) => n + 1), 10_000);
+        setEngine(null);
         // The map stays on screen behind the message.
         const idle = () => {
           scene.draw(performance.now());
           if (!manual) frame = requestAnimationFrame(idle);
         };
         idle();
+        if (error instanceof LoginRequired) {
+          // No guest may open this screen: say where to sign in, and open once the visitor has.
+          setFailed(false);
+          setRole(null);
+          setConfig(error.config);
+          setGate({ loginUrl: error.loginUrl });
+          const recheck = () => {
+            void error.recheck().then(
+              (allowed) => {
+                if (allowed && !disposed) setAttempt((n) => n + 1);
+              },
+              () => {},
+            );
+          };
+          poll = window.setInterval(recheck, 15_000);
+          // The visitor signs in in another tab and comes back: look at once.
+          onVisible = () => {
+            if (document.visibilityState === "visible") recheck();
+          };
+          document.addEventListener("visibilitychange", onVisible);
+          return;
+        }
+        // The service did not answer: say so and try again, instead of showing an empty screen.
+        setGate(null);
+        setFailed(true);
+        retry = window.setTimeout(() => setAttempt((n) => n + 1), 10_000);
         return;
       }
       if (disposed) return;
       setFailed(false);
+      setGate(null);
       setRole(opened.role);
       setConfig(opened.config);
       setSources({ kind: opened.kind, backfilling: opened.backfilling, checkBackfilling: opened.checkBackfilling, minClients: opened.minClients });
@@ -121,6 +152,19 @@ export default function App() {
       // A source with no live mode opens on the newest day.
       else if (opened.live.capabilities.live === "none") created.setReplay("24h");
       setEngine(created);
+      opened.watch?.({
+        role: (next) => {
+          if (disposed) return;
+          setRole(next);
+          created.setViewer(viewerOf(next));
+        },
+        // The session ended and no guest is let in: drop what is on screen and ask for a sign-in.
+        loginRequired: () => {
+          if (disposed) return;
+          setEngine(null);
+          setAttempt((n) => n + 1);
+        },
+      });
       if (manual) {
         window.__opsScreen = {
           engine: created,
@@ -144,6 +188,8 @@ export default function App() {
       disposed = true;
       cancelAnimationFrame(frame);
       window.clearTimeout(retry);
+      window.clearInterval(poll);
+      if (onVisible) document.removeEventListener("visibilitychange", onVisible);
       observer.disconnect();
       scene.dispose();
       sceneRef.current = null;
@@ -379,12 +425,33 @@ export default function App() {
       <Legend live={live} errors={snap.caps.errors} attribution={config.attribution} />
       <Timeline snap={snap} engine={engine} />
       {notice ? <div className="notice">{notice}</div> : null}
-      {engine ? null : failed ? (
+      {engine ? null : gate ? (
+        <div className="boot is-gate">
+          <div className="boot-card">
+            <div className="boot-title">这块大屏要先登录网关才能看。</div>
+            <div className="boot-actions">
+              {gate.loginUrl ? (
+                <a className="btn" href={gate.loginUrl} target="_blank" rel="noopener noreferrer">
+                  去登录
+                </a>
+              ) : null}
+              <button type="button" className="btn" onClick={() => setAttempt((n) => n + 1)}>
+                我已登录，重新打开
+              </button>
+            </div>
+            <div className="boot-hint">{gate.loginUrl ? "登录后回到这个页面，会自动打开。" : "请在网关控制台登录后回到这个页面，会自动打开。"}</div>
+          </div>
+        </div>
+      ) : failed ? (
         <div className="boot is-failed">
-          <div>连不上数据服务，10 秒后自动重试。</div>
-          <button type="button" className="btn" onClick={() => setAttempt((n) => n + 1)}>
-            现在重试
-          </button>
+          <div className="boot-card">
+            <div className="boot-title">连不上数据服务，10 秒后自动重试。</div>
+            <div className="boot-actions">
+              <button type="button" className="btn" onClick={() => setAttempt((n) => n + 1)}>
+                现在重试
+              </button>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="boot">正在加载</div>

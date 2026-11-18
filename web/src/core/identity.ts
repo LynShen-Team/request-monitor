@@ -1,3 +1,4 @@
+import type { ScreenConfig } from "./config";
 import type { Viewer } from "./model";
 
 /**
@@ -20,3 +21,24 @@ export function viewerOf(role: Role): Viewer {
 }
 
 export const ROLE_LABEL: Record<Role, string> = { admin: "管理员", user: "用户", guest: "访客" };
+
+/**
+ * A source rejects with this when the visitor must sign in to the gateway before the screen
+ * opens (the deployment lets no guest in). The page shows a sign-in message instead of data.
+ */
+export class LoginRequired extends Error {
+  /** Where to sign in; null when the source names no place. */
+  readonly loginUrl: string | null;
+  /** The brand to show around the message. */
+  readonly config: ScreenConfig;
+  /** Asks the source again; true once it says that the visitor may open the screen. */
+  readonly recheck: () => Promise<boolean>;
+
+  constructor(loginUrl: string | null, config: ScreenConfig, recheck: () => Promise<boolean>) {
+    super("login required");
+    this.name = "LoginRequired";
+    this.loginUrl = loginUrl;
+    this.config = config;
+    this.recheck = recheck;
+  }
+}

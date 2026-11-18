@@ -36,6 +36,20 @@ type Request struct {
 	HasTTFB    bool
 	DurationMs int64
 	ErrorCode  string
+
+	// ID and Attempts are filled by LiveReader.LiveRequests only.
+	//
+	// ID is an identity of the gateway's log row. It is kept in memory for a few minutes, to tell
+	// a new request from one already seen; it is never stored and never sent to a browser.
+	ID string
+	// Attempts are the failed attempts that preceded the Channel that served the request.
+	Attempts []Attempt
+}
+
+// Attempt is one failed attempt of a request on a Channel.
+type Attempt struct {
+	Route      RouteRef
+	DurationMs int64
 }
 
 // Channel is one Group · Channel pair of the gateway's current configuration.
@@ -64,6 +78,13 @@ type Capabilities struct {
 	Errors bool `json:"errors"`
 	// DurationPrecisionMs is the resolution of recorded durations (1 or 1000).
 	DurationPrecisionMs int `json:"durationPrecisionMs"`
+}
+
+// LiveReader is an adapter whose gateway can be shown in live mode by replay (spec section 13).
+type LiveReader interface {
+	// LiveRequests is Requests with ID and Attempts filled. It may call fn twice for one request;
+	// the caller tells them apart by ID.
+	LiveRequests(ctx context.Context, from, to time.Time, fn func(*Request) error) error
 }
 
 // Adapter reads one gateway.

@@ -48,6 +48,14 @@ backfill_days = 30
 lookback_minutes = 90
 interval_seconds = 30
 
+[live]
+# Live mode replays each request after it ended, because the gateway writes its log row then.
+# enabled = true
+# How often recent requests are read, and how far back each read looks. A request that runs
+# longer than the window is not shown in live mode (it is still counted in the history).
+# interval_seconds = 2
+# window_minutes = 15
+
 [screen]
 # The project carries no mark of its own. Set a title, a note, and logo files here.
 # title = "数据大屏"

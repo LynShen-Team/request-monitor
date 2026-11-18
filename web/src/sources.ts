@@ -16,6 +16,8 @@ export interface Sources {
   checkBackfilling?: () => Promise<boolean>;
   /** Distinct clients a region needs to be shown; null when the source has no such rule. */
   minClients: number | null;
+  /** Tells the page when the source reports another role, or asks for a sign-in, after the start. */
+  watch?: (handlers: { role: (role: Role) => void; loginRequired: () => void }) => void;
 }
 
 /**
@@ -31,7 +33,20 @@ export async function openSources(params: URLSearchParams, now: number): Promise
   if (sourceKind(params) === "network") {
     const { openNetwork, backfilling } = await import("./net/source");
     const net = await openNetwork();
-    return { kind: "network", live: net.live, replay: net.replay, role: net.role, config: net.config, backfilling: net.meta.backfilling, checkBackfilling: backfilling, minClients: net.meta.minClients };
+    return {
+      kind: "network",
+      live: net.live,
+      replay: net.replay,
+      role: net.role,
+      config: net.config,
+      backfilling: net.meta.backfilling,
+      checkBackfilling: backfilling,
+      minClients: net.meta.minClients,
+      watch: (handlers) => {
+        net.replay.onRole = handlers.role;
+        net.replay.onLoginRequired = handlers.loginRequired;
+      },
+    };
   }
   const [{ PreviewLive, PreviewReplay, loadPreviewData }, { PreviewIdentity }, { PreviewConfig }] = await Promise.all([import("./preview/sim"), import("./preview/identity"), import("./preview/config")]);
   const data = await loadPreviewData(now);

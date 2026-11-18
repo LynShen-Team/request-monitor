@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -94,8 +95,10 @@ type Store struct {
 	db  *sql.DB
 	loc *time.Location
 
-	regionIDs map[string]int64
-	modelIDs  map[string]int64
+	// dictionaries guards the two maps: the ingest and the live reader both add entries.
+	dictionaries sync.Mutex
+	regionIDs    map[string]int64
+	modelIDs     map[string]int64
 }
 
 // Open opens (and creates) the database file. loc decides where a day begins.
@@ -204,6 +207,8 @@ func (s *Store) deleteMeta(tx *sql.Tx, key string) error {
 const keySep = "\x1f"
 
 func (s *Store) ensureRegionRow(key string, level int, name string, parent int64, lat, lon float64) (int64, error) {
+	s.dictionaries.Lock()
+	defer s.dictionaries.Unlock()
 	if id, ok := s.regionIDs[key]; ok {
 		return id, nil
 	}
@@ -244,6 +249,8 @@ func (s *Store) EnsureRegion(place geo.Place) (int64, error) {
 
 // EnsureModel returns the id of a model name.
 func (s *Store) EnsureModel(name string) (int64, error) {
+	s.dictionaries.Lock()
+	defer s.dictionaries.Unlock()
 	if id, ok := s.modelIDs[name]; ok {
 		return id, nil
 	}

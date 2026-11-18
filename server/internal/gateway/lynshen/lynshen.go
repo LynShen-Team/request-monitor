@@ -7,8 +7,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -25,6 +27,9 @@ type Adapter struct {
 
 	mu     sync.Mutex
 	groups map[string]string // provider id -> group id, refreshed by Channels
+
+	// noAttempts is set when the database refused to extract the failed attempts.
+	noAttempts atomic.Bool
 }
 
 // Open connects to the gateway database. dsn is `postgres://…` (or `postgresql://…`) in every
@@ -53,8 +58,8 @@ func Open(dsn string) (*Adapter, error) {
 func (a *Adapter) Kind() string { return "lynshen" }
 
 func (a *Adapter) Capabilities() gateway.Capabilities {
-	// Live is "none" until the live step is built (spec OS-B2b).
-	return gateway.Capabilities{Live: "none", Origin: true, Errors: true, DurationPrecisionMs: 1}
+	// Live mode is the replay of finished requests until the gateway has a live outlet (OS-B2b).
+	return gateway.Capabilities{Live: "replayed", Origin: true, Errors: true, DurationPrecisionMs: 1}
 }
 
 func (a *Adapter) Close() error { return a.db.Close() }
@@ -145,14 +150,59 @@ func (a *Adapter) Channels(ctx context.Context) ([]gateway.Channel, error) {
 // The row is written when the request ends, but created_at_unix_ms is the time it began
 // (request-logs.spec.md RL1c-1). Health probes of the gateway itself are left out (RL-API15).
 // Legacy rows without created_at_unix_ms are not read.
-const requestsQuery = `
-SELECT created_at_unix_ms, COALESCE(request_ip, ''), model, COALESCE(provider_id, ''), status,
-       ttfb_ms, duration_ms, COALESCE(error_code, '')
-FROM request_logs
-WHERE created_at_unix_ms >= ? AND created_at_unix_ms < ?
-  AND (request_kind IS NULL OR request_kind <> 'active_probe_connectivity')`
+const requestColumns = `rl.created_at_unix_ms, COALESCE(rl.request_ip, ''), rl.model, COALESCE(rl.provider_id, ''), rl.status,
+       rl.ttfb_ms, rl.duration_ms, COALESCE(rl.error_code, '')`
+
+const requestFilter = `
+FROM request_logs rl
+WHERE rl.created_at_unix_ms >= ? AND rl.created_at_unix_ms < ?
+  AND (rl.request_kind IS NULL OR rl.request_kind <> 'active_probe_connectivity')`
+
+// The failed attempts of a request as "provider|duration_ms" joined by commas. The database
+// extracts these two fields itself, so the error text of an attempt never leaves it (spec
+// OS-SL3a).
+const attemptsPostgres = `COALESCE((SELECT string_agg(COALESCE(t.e->>'provider_id', '') || '|' || COALESCE(t.e->>'duration_ms', ''), ',' ORDER BY t.ord)
+  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(rl.tried_providers_json::jsonb) = 'array' THEN rl.tried_providers_json::jsonb ELSE '[]'::jsonb END) WITH ORDINALITY AS t(e, ord)
+  WHERE COALESCE(t.e->>'outcome', '') <> 'served'), '')`
+
+const attemptsSQLite = `COALESCE((SELECT group_concat(COALESCE(json_extract(j.value, '$.provider_id'), '') || '|' || COALESCE(json_extract(j.value, '$.duration_ms'), ''), ',')
+  FROM json_each(COALESCE(rl.tried_providers_json, '[]')) AS j
+  WHERE COALESCE(json_extract(j.value, '$.outcome'), '') <> 'served'), '')`
 
 func (a *Adapter) Requests(ctx context.Context, from, to time.Time, fn func(*gateway.Request) error) error {
+	return a.read(ctx, "SELECT "+requestColumns+requestFilter, false, from, to, fn)
+}
+
+// LiveRequests reads the same requests with the row identity and the failed attempts. When the
+// database refuses the statement that extracts the attempts, it reads without them from then on
+// (spec OS-SL3a); fn may then be called a second time for rows it already received.
+func (a *Adapter) LiveRequests(ctx context.Context, from, to time.Time, fn func(*gateway.Request) error) error {
+	var callbackErr error
+	wrapped := func(r *gateway.Request) error {
+		if err := fn(r); err != nil {
+			callbackErr = err
+			return err
+		}
+		return nil
+	}
+	if !a.noAttempts.Load() {
+		attempts := attemptsSQLite
+		if a.postgres {
+			attempts = attemptsPostgres
+		}
+		err := a.read(ctx, "SELECT "+requestColumns+", rl.id, "+attempts+requestFilter, true, from, to, wrapped)
+		if err == nil || callbackErr != nil || ctx.Err() != nil {
+			return err
+		}
+		a.noAttempts.Store(true)
+	}
+	return a.read(ctx, "SELECT "+requestColumns+", rl.id, ''"+requestFilter, true, from, to, wrapped)
+}
+
+// AttemptsUnavailable reports whether the live read had to give up the failed attempts.
+func (a *Adapter) AttemptsUnavailable() bool { return a.noAttempts.Load() }
+
+func (a *Adapter) read(ctx context.Context, query string, live bool, from, to time.Time, fn func(*gateway.Request) error) error {
 	a.mu.Lock()
 	groups := a.groups
 	a.mu.Unlock()
@@ -161,21 +211,26 @@ func (a *Adapter) Requests(ctx context.Context, from, to time.Time, fn func(*gat
 		return fmt.Errorf("lynshen: requests: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	rows, err := tx.QueryContext(ctx, a.bind(requestsQuery), from.UnixMilli(), to.UnixMilli())
+	rows, err := tx.QueryContext(ctx, a.bind(query), from.UnixMilli(), to.UnixMilli())
 	if err != nil {
 		return fmt.Errorf("lynshen: requests: %w", err)
 	}
 	defer rows.Close()
 	var req gateway.Request
 	var route gateway.RouteRef
+	var attempts []gateway.Attempt
 	for rows.Next() {
 		var startMs int64
-		var ip, model, provider, status, errorCode string
+		var ip, model, provider, status, errorCode, id, tried string
 		var ttfb, duration sql.NullInt64
-		if err := rows.Scan(&startMs, &ip, &model, &provider, &status, &ttfb, &duration, &errorCode); err != nil {
+		targets := []any{&startMs, &ip, &model, &provider, &status, &ttfb, &duration, &errorCode}
+		if live {
+			targets = append(targets, &id, &tried)
+		}
+		if err := rows.Scan(targets...); err != nil {
 			return fmt.Errorf("lynshen: requests: %w", err)
 		}
-		req = gateway.Request{Start: time.UnixMilli(startMs), ClientIP: ip, Model: model, ErrorCode: errorCode}
+		req = gateway.Request{Start: time.UnixMilli(startMs), ClientIP: ip, Model: model, ErrorCode: errorCode, ID: id}
 		switch status {
 		case "success":
 			req.Status = gateway.StatusSuccess
@@ -197,6 +252,21 @@ func (a *Adapter) Requests(ctx context.Context, from, to time.Time, fn func(*gat
 		if duration.Valid && duration.Int64 >= 0 {
 			req.DurationMs = duration.Int64
 		}
+		if tried != "" {
+			attempts = attempts[:0]
+			for _, part := range strings.Split(tried, ",") {
+				key, ms, _ := strings.Cut(part, "|")
+				if key == "" {
+					continue
+				}
+				attempt := gateway.Attempt{Route: gateway.RouteRef{GroupKey: groups[key], ChannelKey: key}}
+				if n, err := strconv.ParseInt(ms, 10, 64); err == nil && n > 0 {
+					attempt.DurationMs = n
+				}
+				attempts = append(attempts, attempt)
+			}
+			req.Attempts = attempts
+		}
 		if err := fn(&req); err != nil {
 			return err
 		}
@@ -217,10 +287,7 @@ func (a *Adapter) CountByBucket(ctx context.Context, from, to time.Time, fn func
 	}
 	defer func() { _ = tx.Rollback() }()
 	query := `
-SELECT created_at_unix_ms / 300000, COALESCE(provider_id, ''), status, COUNT(*)
-FROM request_logs
-WHERE created_at_unix_ms >= ? AND created_at_unix_ms < ?
-  AND (request_kind IS NULL OR request_kind <> 'active_probe_connectivity')
+SELECT rl.created_at_unix_ms / 300000, COALESCE(rl.provider_id, ''), rl.status, COUNT(*)` + requestFilter + `
 GROUP BY 1, 2, 3`
 	rows, err := tx.QueryContext(ctx, a.bind(query), from.UnixMilli(), to.UnixMilli())
 	if err != nil {

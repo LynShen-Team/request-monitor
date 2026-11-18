@@ -78,6 +78,11 @@ type View struct {
 	Topology Topology
 	Baseline Baseline
 	Replay   map[string]*ReplayData
+
+	// routeIndex maps a stored route id to its index in Topology.Routes, and originID a stored
+	// region id to its id in Topology.Origins; live events are rendered with them.
+	routeIndex map[int64]int
+	originID   map[int64]string
 }
 
 type snapshot struct {
@@ -220,21 +225,19 @@ func (s *Service) build(ctx context.Context, now time.Time) (*snapshot, error) {
 		originTotal[target] += row.n
 	}
 
-	// Origin list, busiest first; the same for every viewer.
+	// Origin list, in the order in which the service first saw the regions, so that an origin
+	// keeps its place while others come and go (spec OS-SV5); the same for every viewer.
 	originIDs := make([]int64, 0, len(originTotal))
 	for id := range originTotal {
 		originIDs = append(originIDs, id)
 	}
-	sort.Slice(originIDs, func(i, j int) bool {
-		if originTotal[originIDs[i]] != originTotal[originIDs[j]] {
-			return originTotal[originIDs[i]] > originTotal[originIDs[j]]
-		}
-		return originIDs[i] < originIDs[j]
-	})
+	sort.Slice(originIDs, func(i, j int) bool { return originIDs[i] < originIDs[j] })
 	originIndex := make(map[int64]int, len(originIDs))
+	originID := make(map[int64]string, len(originIDs))
 	origins := make([]Site, 0, len(originIDs))
 	for i, id := range originIDs {
 		originIndex[id] = i
+		originID[id] = "r" + strconv.FormatInt(id, 10)
 		region := regions[id]
 		site := Site{ID: "r" + strconv.FormatInt(id, 10), Name: region.Name, Region: regionLabel(regions, region), Lat: region.Lat, Lon: region.Lon}
 		if c := centroids[id]; c != nil && c.w > 0 && region.Level != store.LevelCity {
@@ -274,7 +277,7 @@ func (s *Service) build(ctx context.Context, now time.Time) (*snapshot, error) {
 	snap := &snapshot{builtAt: now}
 	for _, viewer := range []Viewer{Restricted, Admin} {
 		topology, routeIndex := s.topology(viewer, routes, sites, origins)
-		view := &View{Topology: topology, Replay: map[string]*ReplayData{}}
+		view := &View{Topology: topology, Replay: map[string]*ReplayData{}, routeIndex: routeIndex, originID: originID}
 		for name, w := range windows {
 			first := end - end%w.per - w.per*w.count
 			data := &ReplayData{
@@ -294,15 +297,37 @@ func (s *Service) build(ctx context.Context, now time.Time) (*snapshot, error) {
 			view.Baseline.Total += b.Total
 			view.Baseline.Errors += b.Errors
 		}
-		encoded, err := json.Marshal(topology)
+		version, err := versionOf(topology)
 		if err != nil {
 			return nil, err
 		}
-		sum := sha256.Sum256(encoded)
-		view.Version = hex.EncodeToString(sum[:8])
+		view.Version = version
 		snap.views[viewer] = view
 	}
 	return snap, nil
+}
+
+// versionOf names what the indices and ids of a topology mean (spec OS-SH4): the routes in order,
+// the ids of the upstream sites, and the ids of the origins in order. A coordinate or a channel
+// count is not part of it, so a page keeps its topology while those drift.
+func versionOf(topology Topology) (string, error) {
+	identity := struct {
+		Routes    []RouteInfo
+		Upstreams []string
+		Origins   []string
+	}{Routes: topology.Routes}
+	for _, site := range topology.Upstreams {
+		identity.Upstreams = append(identity.Upstreams, site.ID)
+	}
+	for _, origin := range topology.Origins {
+		identity.Origins = append(identity.Origins, origin.ID)
+	}
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:8]), nil
 }
 
 // mergeBuckets sums fine buckets into one replay bucket, with indices of one viewer's topology.

@@ -32,7 +32,7 @@ CREATE TABLE request_logs (
   id TEXT PRIMARY KEY, request_id TEXT, user_id TEXT NOT NULL, api_key_id TEXT, model TEXT NOT NULL,
   provider_id TEXT, channel_id TEXT, is_stream INTEGER NOT NULL, status TEXT NOT NULL,
   error_code TEXT, error_message TEXT, duration_ms BIGINT, ttfb_ms BIGINT, request_ip TEXT,
-  request_kind TEXT, created_at TEXT NOT NULL, created_at_unix_ms BIGINT);
+  request_kind TEXT, created_at TEXT NOT NULL, created_at_unix_ms BIGINT, tried_providers_json TEXT);
 CREATE INDEX request_logs_time ON request_logs (created_at_unix_ms);
 `
 
@@ -43,7 +43,7 @@ var copies = []struct {
 }{
 	{"monoize_groups", "id, name, account_class, sort_order", 4},
 	{"monoize_providers", "id, group_id, name, public_name, channel_id, channel_name, channel_public_name, channel_base_url", 8},
-	{"request_logs", "id, request_id, user_id, api_key_id, model, provider_id, channel_id, is_stream, status, error_code, error_message, duration_ms, ttfb_ms, request_ip, request_kind, created_at, created_at_unix_ms", 17},
+	{"request_logs", "id, request_id, user_id, api_key_id, model, provider_id, channel_id, is_stream, status, error_code, error_message, duration_ms, ttfb_ms, request_ip, request_kind, created_at, created_at_unix_ms, tried_providers_json", 18},
 }
 
 // LoadPostgres copies a demo gateway file into a fresh schema of the PostgreSQL database dsn and
