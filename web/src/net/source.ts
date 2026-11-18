@@ -156,7 +156,11 @@ export async function openNetwork(): Promise<NetSources> {
   const gate = () => new LoginRequired(identity.loginUrl, config, async () => (await identify()).allowed === true);
   if (identity.allowed === false) throw gate();
   try {
-    const [meta, topology] = await Promise.all([get<Meta>("api/meta"), get<TopologyAnswer>("api/topology")]);
+    const [answer, topology] = await Promise.all([get<Meta>("api/meta"), get<TopologyAnswer>("api/topology")]);
+    // The page has no reader for the service's live events (`api/live`) yet. Until it has one,
+    // live mode is off whatever the service offers, so the screen never opens on a view that
+    // nothing feeds.
+    const meta: Meta = { ...answer, capabilities: { ...answer.capabilities, live: "none" } };
     return { meta, live: new NetLive(topology, meta.capabilities), replay: new NetReplay(topology.version), role: identity.role, config };
   } catch (error) {
     throw error instanceof Denied ? gate() : error;

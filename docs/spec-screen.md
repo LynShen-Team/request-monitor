@@ -89,6 +89,11 @@ OS-D5. Capabilities. A source states what its gateway records (`Capabilities` in
 | `errors` | `false` | shows `未记录` in place of the success rate and of the failure count; shows no success rate on a route row, in the timeline, in the tooltip, or in the detail card; omits `失败` from the legend; draws every upstream site in the dispatch colour instead of a status colour (OS-M6) |
 | `origin` | `false` | shows `这个网关没有记录请求的来源地区。` in place of the origin ranking |
 
+OS-D5a. Not implemented: the network source does not read the service's live events
+(`docs/spec-service.md` OS-SR6, `GET /api/live`). Until it does, it treats `live` as `none`
+whatever `api/meta` says, so that the screen opens on the replay and not on a live view that
+nothing feeds.
+
 OS-D6. The origin counts of a bucket can sum to less than its request count: the service does not
 place a request whose client address has no known region. When the difference is at least 0.5
 requests and at least 0.1 % of the bucket set, the origin ranking has a row `未归入地区` with it.
