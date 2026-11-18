@@ -1,0 +1,67 @@
+# Configuration of the ops screen service. Every key is optional unless it says otherwise.
+
+# Address to listen on. Put a reverse proxy with TLS in front of it.
+listen = "127.0.0.1:8787"
+# Directory of the service's own database (5-minute counts only).
+data_dir = "data"
+# Where a day begins. Days matter for the distinct-client rule of the regions.
+timezone = "Asia/Shanghai"
+# Serve the front end from a directory instead of the one built into the binary.
+# web_dir = "../web/dist"
+
+[gateway]
+# The adapter. This build supports "lynshen".
+kind = "lynshen"
+# REQUIRED. Connection string of the gateway database, for an account that can only SELECT from
+# request_logs, monoize_providers, and monoize_groups. Prefer a read replica. It can be given in
+# the environment variable OPSSCREEN_GATEWAY_DSN instead, so the secret is not in this file.
+dsn = "postgres://readonly:CHANGE-ME@127.0.0.1:5432/gateway"
+# Where the gateway itself is, for the map.
+name = "城市名"
+region = "国家或省"
+lat = 0.0
+lon = 0.0
+
+[geo]
+# A MaxMind-format city database: DB-IP City Lite (free, CC BY 4.0) or GeoLite2-City.
+mmdb = "data/dbip-city-lite.mmdb"
+# Optional CSV of networks that is asked first: cidr,country_code,country,province,city,lat,lon
+# table = "data/networks.csv"
+# Preferred language of place names; English is used when the database lacks it.
+language = "zh-CN"
+# A region is shown when at least this many distinct clients used it in a day.
+min_clients = 3
+
+[ingest]
+# Days of history read on first start (1 to 90).
+backfill_days = 30
+# How far back each pass recomputes, and the pause between passes.
+lookback_minutes = 90
+interval_seconds = 30
+
+[screen]
+# The project carries no mark of its own. Set a title, a note, and logo files here.
+# title = "数据大屏"
+# note = ""
+# logo_day_file = "/etc/opsscreen/logo-day.svg"
+# logo_night_file = "/etc/opsscreen/logo-night.svg"
+
+# Fix the place of the Channels whose base URL host matches. Without an entry the host is
+# resolved and looked up in the geo database once a day. `host` is an exact name or a suffix that
+# starts with a dot.
+# [[upstream]]
+# host = ".cdn.example.com"
+# anycast = true          # a CDN edge: the place of the origin server is unknown
+# name = "城市名"
+# region = "国家 · 省"
+# lat = 0.0
+# lon = 0.0
+#
+# [[upstream]]
+# host = "internal.example.com"
+# hidden = true           # draw no upstream site for these Channels
+
+[dev]
+# "admin" treats every visitor as an admin. For local work before identification is built;
+# the service refuses it unless `listen` is a loopback address.
+# viewer = "guest"

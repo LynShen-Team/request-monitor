@@ -1,0 +1,4 @@
+# Build output and local demo data of the service.
+/bin/
+/demo/
+/internal/webui/dist/

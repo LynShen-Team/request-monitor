@@ -1,15 +1,26 @@
-# Ops Screen: Service Specification (draft)
+# Ops Screen: Service Specification
 
-The service is not implemented. This file starts from the rules agreed on 2026-11-18; rules marked
-"decided" are fixed, the others are a proposal. The page that the service feeds is specified in
-`docs/spec-screen.md`, and the data contract in `web/src/core/model.ts` and
-`web/src/core/identity.ts`. This repository is meant to be published: this file MUST NOT contain
-figures, names, domains, or addresses of a real deployment.
+The page that the service feeds is specified in `docs/spec-screen.md`, and the data contract in
+`web/src/core/model.ts`, `web/src/core/identity.ts`, and `web/src/core/config.ts`. This repository
+is meant to be published: this file MUST NOT contain figures, names, domains, or addresses of a
+real deployment.
 
-## 6. Rules
+## 0. Status
 
-Statements about new-api and sub2api come from reading their source and were not checked on a
-running instance.
+OS-S0. Implemented in `server/`: the store (section 4), the ingest of history (section 5), the
+LynShen adapter for history (section 3), regions and the distinct-client rule (section 6), upstream
+places (section 7), the views with the restricted merge (section 8), and the HTTP API (section 9).
+
+OS-S0a. Not implemented: identification (OS-B6; every visitor is `guest`, see OS-SH3), live events
+(OS-B2a, OS-B2b), the sub2api and new-api adapters, and the deployment rules OS-B6.6 and OS-B7.
+
+OS-S0b. The LynShen adapter has been run against a local PostgreSQL with synthetic rows only. It
+has not been run against a real gateway database.
+
+## 1. Decided rules
+
+Rules marked "decided" are owner decisions of 2026-11-18. Statements about new-api and sub2api
+come from reading their source and were not checked on a running instance.
 
 OS-B1. The service is one process with its own store. It reads a gateway through an adapter and
 serves the screen. It never writes to the gateway's database. Decided: it is written in Go and
@@ -34,6 +45,7 @@ only the region. An event sent to a browser MUST NOT carry a client IP, a user, 
 message, or a payload, and it applies OS-D3a for the viewer's role. Decided: a city is shown as a
 city when at least 3 distinct clients sent requests from it in the last 24 hours; otherwise its
 requests count toward its province, and a province below 3 distinct clients toward its country.
+Section 6 states how the service counts.
 
 OS-B3a. Decided: the default database is the free DB-IP city database, and an operator may supply
 a MaxMind database instead. While the service uses the DB-IP database, the page shows one line at
@@ -75,3 +87,244 @@ OS-B8. Decided: the project is published as one public repository that holds the
 the service, under the Apache-2.0 licence, with a name that does not contain `LynShen`. It shows
 no brand mark by default; a deployment adds its mark by configuration. The README states that the
 project comes from LynShen. Publication requires `docs/spec-screen.md` OS-P2 and OS-U5 first.
+
+## 2. Adapter contract
+
+OS-SA1. An adapter (`server/internal/gateway`) gives the service four things: its name, its
+capabilities (OS-SA4), the current list of Group · Channel pairs, and every finished request whose
+start time lies in a given half-open range.
+
+OS-SA2. A request carries: start time, client address (may be empty), model, the Group and Channel
+keys of the route that served it (none when the gateway rejected the request before it selected a
+Channel), terminal status (`success`, `error`, `client_gone`), TTFB when recorded, duration, and
+error code. An adapter MUST NOT read a user, a key, an error message, a request or response body,
+or request headers.
+
+OS-SA3. A Group · Channel pair carries: the gateway's stable keys of the Group and the Channel,
+both display names, the Channel base URL, and the flag `restricted` (OS-D3a).
+
+OS-SA4. Capabilities say what the gateway records, so that the page can label what is missing
+(OS-B2c): `live` is `none`, `replayed`, or `realtime`; `origin` is false when the gateway does not
+record the client address of every request, or when the service has no geo database; `errors` is
+false when the gateway does not log failed requests; `durationPrecisionMs` is 1 or 1000.
+
+OS-SA5. An adapter MUST issue read statements only.
+
+## 3. LynShen adapter
+
+OS-SL1. The adapter reads three tables of the gateway's PostgreSQL database: `request_logs`,
+`monoize_providers`, and `monoize_groups`. Every statement runs inside a transaction opened with
+`READ ONLY` and with `statement_timeout` set to 60 s, so the database refuses a write whatever the
+privileges of the account.
+
+OS-SL2. A Provider row embeds its Channel (`request-logs.spec.md` RL-MIG-2), so one Provider is
+one Group · Channel pair. The Group name is `monoize_groups.name`. The Channel name is
+`monoize_providers.public_name`, or `channel_public_name` when that is empty. A pair is restricted
+when `monoize_groups.account_class` is neither `standard` nor `enterprise`; a missing Group or an
+unknown class is restricted.
+
+OS-SL3. A request is one row of `request_logs` whose `created_at_unix_ms` lies in the range and
+whose `request_kind` is not `active_probe_connectivity`. `created_at_unix_ms` is the start of the
+request (RL1c-1), although the row is written when the request ends. The adapter selects exactly
+these columns: `created_at_unix_ms`, `request_ip`, `model`, `provider_id`, `status`, `ttfb_ms`,
+`duration_ms`, `error_code`. A row without `created_at_unix_ms` (a legacy row) is not read.
+
+OS-SL4. The capabilities are `live = none` (until OS-B2b is built), `origin = true`,
+`errors = true`, `durationPrecisionMs = 1`.
+
+OS-SL5. A DSN that starts with `sqlite://` opens a file with the same three tables. It exists for
+tests and for the demo of OS-ST3. LynShen itself runs on PostgreSQL only.
+
+## 4. Store
+
+OS-SS1. The store is one SQLite file, `opsscreen.db` in the data directory. It holds counts and
+the dictionaries they refer to. It MUST NOT hold a client address, a user, a key, a payload, an
+error message, or an upstream host name.
+
+OS-SS2. A bucket is 5 minutes: bucket number = Unix seconds / 300. The rollup tables are:
+
+| Table | Key | Value |
+| --- | --- | --- |
+| `rollup_route` | bucket, route, status | request count |
+| `rollup_origin` | bucket, region | request count |
+| `rollup_model` | bucket, model | request count |
+| `rollup_ttfb` | bucket, route | TTFB histogram of successful requests |
+
+Route 0 is "rejected before a Channel was selected". A request whose Channel is no longer listed
+by the gateway counts toward one route named `其他 · 已下线的渠道`, which is restricted.
+
+OS-SS3. A TTFB histogram has 48 bins; bin `i` covers `[10 × 1.28^i, 10 × 1.28^(i+1))` ms, the first
+bin also takes smaller values and the last bin larger ones. A median read from it is within one
+bin width (28 %) of the true median. Histograms are added to answer a longer step.
+
+OS-SS4. The dictionaries are `route` (Group key, Channel key, both names, `restricted`, upstream
+site), `site` (an upstream place: name, region, coordinates, `anycast`), `region` (a country, a
+province, or a city, with its parent and coordinates), and `model`.
+
+OS-SS5. Rollups are kept for the backfill window plus 5 days.
+
+## 5. Ingest
+
+OS-SI1. The one operation of the ingest is: compute the rollups of a time range from the gateway
+again and replace the stored rollups of that range, in one transaction. A range can be computed
+any number of times and never counts a request twice. A forward-only cursor is not used, because
+a gateway may write a row long after the start time it is stamped with (OS-SL3).
+
+OS-SI2. Backfill: on start the service computes each of the past `backfill_days` days (default
+30) that it has not completed yet, oldest first, then today so far.
+
+OS-SI3. Follow: every `interval_seconds` (default 30) the service computes the last
+`lookback_minutes` (default 90) again. A request that runs longer than the lookback is counted
+only if its row appears before its start time leaves that window.
+
+OS-SI4. A request belongs to the bucket of its start time. `total` of a replay bucket is every
+terminal request; `errors` is those with status `error`; `client_gone` is not an error
+(`docs/spec-screen.md` OS-L2). In the per-route counts a request counts for the route that served
+it last; failed attempts on other Channels are not counted in replay.
+
+OS-SI5. The service reads the gateway's Group · Channel list at start and every 5 minutes.
+
+OS-SI6. `opsscreen reconcile` compares, for every bucket, Channel, and status of the chosen days
+up to the start of the lookback window, the gateway's own `COUNT(*)` with the stored count, and
+fails when any cell differs.
+
+## 6. Regions and the distinct-client rule
+
+OS-SG1. A client address is looked up in a local database: an optional network table (CSV:
+`cidr,country_code,country,province,city,lat,lon`), then a MaxMind-format city database. The
+address is used in memory for that lookup and for OS-SG3 and is then dropped. An address that
+cannot be parsed or is in neither database has no region.
+
+OS-SG2. A region is a city, a province, or a country; a city's parent is its province, or its
+country when the database names no province.
+
+OS-SG3. To count distinct clients the service stores, per day and finest region, a fingerprint of
+each client address: the first 8 bytes of HMAC-SHA-256 of the address under a key that is random
+per day. When a day is final, the service stores the distinct-client count of that day for every
+region at every level, and deletes the fingerprints and the key of that day. A fingerprint
+therefore cannot be turned back into an address, and cannot be matched across days.
+
+OS-SG4. A day is a calendar day in the configured time zone. A day is final once it ended more
+than the lookback plus 10 minutes ago.
+
+OS-SG5. This is how the service applies the decided rule of OS-B3. The region shown for a request
+is the finest of its city, its province, and its country that had at least `min_clients` (default
+3) distinct clients on the day of the request; when none had, the request is shown under no
+region. While a day is not final, a region also passes when it passed on the day before, so that
+regions do not vanish at midnight. A client counts once for its city, once for the province of
+that city, and once for the country.
+
+OS-SG6. A province or a country is drawn at the mean position of all its requests of the replay
+range, weighted by count. It is not drawn at the position of the cities that were folded into it.
+
+OS-SG7. Place names are taken in the configured language (default `zh-CN`), or in English when
+the database has no name in that language.
+
+## 7. Upstream places
+
+OS-SP1. The place of a Channel is found from the host of its base URL: a matching `[[upstream]]`
+entry of the configuration wins; otherwise the host is resolved (a literal address is used as it
+is) and the first address the geo database knows gives the city. A host is resolved at most once
+in 24 hours.
+
+OS-SP2. An `[[upstream]]` entry matches an exact host or a suffix that starts with a dot. It can
+give a fixed place, mark the place `anycast`, or hide the upstream of those Channels.
+
+OS-SP3. A Channel whose place is unknown has no upstream site.
+
+## 8. Views
+
+OS-SV1. The service builds two views from the same rollups: the admin view and the restricted
+view. A visitor with role `admin` receives the admin view; every other visitor receives the
+restricted view. A visitor that could not be identified is never given the admin view.
+
+OS-SV2. Admin view: every route is one entry `Group · Channel` with its upstream site.
+
+OS-SV3. Restricted view: all restricted routes of one Group are one entry
+`{ group, channel: "", upstream: null, restricted: true }`, and their counts are added. An upstream
+site that only restricted routes use is not in the view. No Channel name, Channel key, or upstream
+site of a restricted route is in any answer to such a visitor.
+
+OS-SV4. Origins, models, and totals are the same in both views.
+
+OS-SV5. `Topology.origins` lists the regions that OS-SG5 shows for any day of the last 30 days,
+busiest first. `ReplayBucket.origins` is indexed like it. Requests that OS-SG5 shows under no
+region are in `total` and in no origin, so the origin counts of a bucket may add up to less than
+`total`.
+
+OS-SV6. `ReplayData.models` lists the 14 busiest models of the last 30 days, then `其他模型` for
+all the others when there are more.
+
+OS-SV7. A replay window ends at the last complete step: the bucket that contains the present is
+left out, and the window is aligned to its step (5 minutes, 30 minutes, 2 hours).
+
+OS-SV8. A view is built at most once per 20 s while the rollups change.
+
+## 9. HTTP API
+
+OS-SH1. The service answers `GET` and `HEAD` only. Every JSON answer has
+`Cache-Control: no-store`. A failed request answers `{ "error": "<code>" }`.
+
+OS-SH2. Endpoints:
+
+| Path | Answer |
+| --- | --- |
+| `/api/identity` | `{ "role": "admin" \| "user" \| "guest" }` (`web/src/core/identity.ts`) |
+| `/api/config` | a `ScreenConfig` (`web/src/core/config.ts`): `title`, and when set `logo`, `note`, `attribution` |
+| `/api/meta` | `{ "gateway": string, "capabilities": Capabilities, "minClients": number, "backfilling": boolean }` |
+| `/api/topology` | `{ "version": string, "topology": Topology, "baseline24h": { "total", "errors" } }` |
+| `/api/replay?window=24h\|7d\|30d` | `{ "version": string, "data": ReplayData }`; `400 invalid_window` otherwise |
+| `/healthz` | `ok` |
+
+`Capabilities` is `{ "live": "none" | "replayed" | "realtime", "origin": boolean, "errors": boolean,
+"durationPrecisionMs": number }` (OS-SA4). `backfilling` is true while OS-SI2 has not finished, so
+older parts of a replay may still be empty.
+
+OS-SH3. Until OS-B6 is built, `/api/identity` answers `guest` and every answer is the restricted
+view. The setting `dev.viewer = "admin"` makes every visitor an admin; the service refuses to
+start with it unless it listens on a loopback address. Nothing that a browser sends can change
+the role.
+
+OS-SH4. `version` names the topology that the indices of an answer refer to. `/api/topology` and
+`/api/replay` of the same moment carry the same `version`. When a replay answer carries another
+`version` than the topology the page holds, the page MUST fetch the topology again before it uses
+the answer.
+
+OS-SH5. Site ids, region ids, and the gateway id are opaque strings. A region id or a site id
+says nothing about the gateway's own keys.
+
+OS-SH6. `attribution` of `/api/config` is the credit that the licence of the geo database in use
+requires (OS-B3a): for the DB-IP database `{ "text": "IP Geolocation by DB-IP", "url":
+"https://db-ip.com" }`. It is absent for a network table.
+
+OS-SH7. Every answer carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+and a `Content-Security-Policy` that allows the page's own origin only and sets
+`frame-ancestors 'none'` (OS-B7: embedding is a later step).
+
+OS-SH8. Any other path serves the front end; a path that is not a file serves `index.html`.
+
+## 10. Configuration
+
+OS-SC1. The configuration is one TOML file; `server/config.example.toml` lists every key. An
+unknown key is an error. The gateway DSN may be given in the environment variable
+`OPSSCREEN_GATEWAY_DSN` instead of the file.
+
+OS-SC2. The service listens on `127.0.0.1:8787` unless configured otherwise.
+
+## 11. Verification
+
+OS-ST1. `go test ./...` in `server/` covers: the histogram; the store's replace-range and
+distinct-client rules; the ingest end to end on synthetic data, including that a second pass
+changes nothing and that the rollups equal the gateway's own counts; the restricted view (no
+restricted Channel name, no upstream of a restricted route, in any answer); OS-SG5 (a city below
+the threshold is shown as its province, a province below it as its country, a country below it
+not at all); that the store file and the answers contain no client address and none of the marker
+strings that the synthetic data writes into the columns of OS-SA2 that must not be read; and the
+HTTP API.
+
+OS-ST2. The tests of the LynShen adapter run on a SQLite file by default, and on PostgreSQL when
+`OPSSCREEN_TEST_PG_DSN` names an empty database that the test may fill.
+
+OS-ST3. `opsscreen devseed` writes a demo: a file with the three tables of OS-SL1 filled with
+invented requests, a network table that places the invented client addresses, and a
+configuration. Every name and number in it is invented.
