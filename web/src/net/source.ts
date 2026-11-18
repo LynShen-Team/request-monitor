@@ -3,7 +3,7 @@ import { LoginRequired, type Role } from "../core/identity";
 import type { Capabilities, LiveEvent, LiveSource, ReplayData, ReplaySource, ReplayWindow, Topology } from "../core/model";
 
 /**
- * Data source that reads the ops screen service (docs/spec-service.md section 9). Paths are
+ * Data source that reads the Request Monitor service (docs/spec-service.md section 9). Paths are
  * relative to the page, so the service can be mounted under any path of a reverse proxy.
  */
 

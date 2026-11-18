@@ -1,7 +1,12 @@
-Ops Screen
-Copyright 2026 LynShen
+Request Monitor
+Copyright 2026 LynShen Inc.
 
-This project comes from LynShen (https://lynshen.org).
+This product is developed by LynShen Inc. (https://lynshen.org).
+
+The LynShen icon and logo in docs/images/ identify the maker of this project in
+its README; the page that this project builds does not use them. As section 6
+of the Apache License states, the licence grants no permission to use the trade
+names or marks of LynShen Inc.
 
 It uses the following third-party data and software:
 

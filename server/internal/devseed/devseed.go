@@ -369,7 +369,7 @@ func Generate(dir string, opts Options) error {
 		return err
 	}
 
-	config := fmt.Sprintf(`# Demo configuration written by "opsscreen devseed". Every name and number in the demo is invented.
+	config := fmt.Sprintf(`# Demo configuration written by "request-monitor devseed". Every name and number in the demo is invented.
 listen = "127.0.0.1:8787"
 data_dir = %q
 timezone = "Asia/Shanghai"

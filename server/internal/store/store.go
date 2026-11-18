@@ -10,16 +10,40 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/geo"
-	"opsscreen/internal/hist"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/geo"
+	"request-monitor/internal/hist"
 )
+
+// FileName is the store's file in the data directory (spec OS-SS1). LegacyFileName is the name it
+// had before the project was renamed (spec OS-B9).
+const (
+	FileName       = "request-monitor.db"
+	LegacyFileName = "opsscreen.db"
+)
+
+// PathIn returns the store's file in dataDir: FileName, or LegacyFileName when only the legacy file
+// exists, so that a data directory written before the rename keeps its rollups.
+func PathIn(dataDir string) string {
+	path := filepath.Join(dataDir, FileName)
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return path
+	}
+	legacy := filepath.Join(dataDir, LegacyFileName)
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return path
+}
 
 // BucketSeconds is the rollup step.
 const BucketSeconds = 300

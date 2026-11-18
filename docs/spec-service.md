@@ -1,4 +1,4 @@
-# Ops Screen: Service Specification
+# Request Monitor: Service Specification
 
 The page that the service feeds is specified in `docs/spec-screen.md`, and the data contract in
 `web/src/core/model.ts`, `web/src/core/identity.ts`, and `web/src/core/config.ts`. This repository
@@ -16,9 +16,11 @@ identification with the guest setting (section 12), and live mode by replay for 
 OS-S0a. Not implemented: the gateway's live event outlet (OS-B2b), the sub2api and new-api
 adapters, and the deployment rule OS-B7.
 
-OS-S0b. The LynShen adapter has been run against a local PostgreSQL with synthetic rows only. It
-has not been run against a real gateway database. Identification has been run against a stand-in
-for the gateway's `GET /api/dashboard/auth/me`, not against a real gateway.
+OS-S0b. The LynShen adapter has been run against a local PostgreSQL with synthetic rows, and on
+2026-11-18 against a real gateway database through a read-only account: after a 30-day backfill,
+`request-monitor reconcile -days 30` found no cell that differs. Identification has been run
+against a stand-in for the gateway's `GET /api/dashboard/auth/me`; on the real deployment only the
+answer for a visitor without a session has been checked.
 
 ## 1. Decided rules
 
@@ -87,9 +89,47 @@ owner chooses the name). The console has one entry that opens the screen in a ne
 Embedding the screen in the console is a later step.
 
 OS-B8. Decided: the project is published as one public repository that holds the front end and
-the service, under the Apache-2.0 licence, with a name that does not contain `LynShen`. It shows
-no brand mark by default; a deployment adds its mark by configuration. The README states that the
-project comes from LynShen. Publication requires `docs/spec-screen.md` OS-P2 and OS-U5 first.
+the service, under the Apache-2.0 licence, with a name that does not contain `LynShen` (the name is
+OS-B9). The page shows no brand mark by default; a deployment adds its mark by configuration. The
+README states that the project comes from LynShen. Publication requires `docs/spec-screen.md`
+OS-P2 and OS-U5 first.
+
+OS-B8a. Decided (owner, 2026-11-18): the README shows the LynShen icon and the LynShen logo and
+names LynShen Inc. as the maker; `NOTICE` names LynShen Inc. as the copyright holder. The icon and
+the logo are kept in `docs/images/` for the README only. The README carries no address, host,
+figure, or name of a LynShen deployment, and its screenshots show the synthetic sample of
+`docs/spec-screen.md` OS-P2.
+
+OS-B9. Decided: the project's public name is Request Monitor (owner, 2026-11-18). Its working
+name before that was "ops screen" (`opsscreen`). The renamed identifiers, and the names from
+before the rename that are still accepted:
+
+| Identifier | Name | Still accepted |
+| --- | --- | --- |
+| Executable, command directory | `request-monitor`, `server/cmd/request-monitor` | - |
+| Go module | `request-monitor` | - |
+| Gateway DSN (OS-SC1) | `REQUEST_MONITOR_GATEWAY_DSN` | `OPSSCREEN_GATEWAY_DSN` |
+| Listen address (OS-SC1) | `REQUEST_MONITOR_LISTEN` | `OPSSCREEN_LISTEN` |
+| Test database (OS-ST2) | `REQUEST_MONITOR_TEST_PG_DSN` | `OPSSCREEN_TEST_PG_DSN` |
+| Service for the dev server (`docs/spec-screen.md` OS-P1a) | `REQUEST_MONITOR_API` | `OPS_API` |
+| Store file in `data_dir` (OS-SS1) | `request-monitor.db` | `opsscreen.db` |
+| Default page title (`docs/spec-screen.md` OS-U5) | `Request Monitor` | - |
+| Single-file preview | `web/dist-single/request-monitor.html` | - |
+| Frame-stepping hook (`docs/spec-screen.md` OS-U3) | `window.__requestMonitor` | - |
+
+1. A current name wins over its legacy name. A legacy environment variable is read only when the
+   current one is unset or empty, and the service logs a warning when it reads one.
+2. The store file is `request-monitor.db`, unless `data_dir` holds `opsscreen.db` and no
+   `request-monitor.db`; then the service keeps using `opsscreen.db`.
+3. Reason: a deployment from before the rename runs with the legacy environment variable and store
+   file. The rename must not stop it, and must not make it read the gateway's history again. The
+   public names change before the first publication, while nobody outside depends on the old ones.
+   Dropping a legacy name is a breaking change and needs its own decision.
+4. The rule prefix `OS-` stays. Reason: rule ids are cited in code comments, tests, commit
+   messages, and notes outside this repository; a new prefix would break those references and give
+   a reader nothing. Internal identifiers that do not spell the old name stay as well:
+   `window.__OPS_CONFIG__`, `window.__OPS_SAMPLE__`, `__OPS_SOURCE__`, and the adapter kind
+   `lynshen`, which names the gateway it reads (section 3).
 
 ## 2. Adapter contract
 
@@ -152,9 +192,9 @@ tests and for the demo of OS-ST3. LynShen itself runs on PostgreSQL only.
 
 ## 4. Store
 
-OS-SS1. The store is one SQLite file, `opsscreen.db` in the data directory. It holds counts and
-the dictionaries they refer to. It MUST NOT hold a client address, a user, a key, a payload, an
-error message, or an upstream host name.
+OS-SS1. The store is one SQLite file, `request-monitor.db` in the data directory (or
+`opsscreen.db`, OS-B9). It holds counts and the dictionaries they refer to. It MUST NOT hold a
+client address, a user, a key, a payload, an error message, or an upstream host name.
 
 OS-SS2. A bucket is 5 minutes: bucket number = Unix seconds / 300. The rollup tables are:
 
@@ -199,7 +239,7 @@ it last; failed attempts on other Channels are not counted in replay.
 
 OS-SI5. The service reads the gateway's Group · Channel list at start and every 5 minutes.
 
-OS-SI6. `opsscreen reconcile` compares, for every bucket, Channel, and status of the chosen days
+OS-SI6. `request-monitor reconcile` compares, for every bucket, Channel, and status of the chosen days
 up to the start of the lookback window, the gateway's own `COUNT(*)` with the stored count, and
 fails when any cell differs.
 
@@ -329,7 +369,8 @@ OS-SH8. Any other path serves the front end; a path that is not a file serves `i
 
 OS-SC1. The configuration is one TOML file; `server/config.example.toml` lists every key. An
 unknown key is an error. The gateway DSN may be given in the environment variable
-`OPSSCREEN_GATEWAY_DSN` instead of the file.
+`REQUEST_MONITOR_GATEWAY_DSN` instead of the file, and the listen address in
+`REQUEST_MONITOR_LISTEN`; their legacy names are in OS-B9.
 
 OS-SC2. The service listens on `127.0.0.1:8787` unless configured otherwise.
 
@@ -353,9 +394,10 @@ strings that the synthetic data writes into the columns of OS-SA2 that must not 
 HTTP API.
 
 OS-ST2. The tests of the LynShen adapter run on a SQLite file by default, and on PostgreSQL when
-`OPSSCREEN_TEST_PG_DSN` names an empty database that the test may fill.
+`REQUEST_MONITOR_TEST_PG_DSN` (or its legacy name, OS-B9) names an empty database that the test
+may fill.
 
-OS-ST3. `opsscreen devseed` writes a demo: a file with the three tables of OS-SL1 filled with
+OS-ST3. `request-monitor devseed` writes a demo: a file with the three tables of OS-SL1 filled with
 invented requests, a network table that places the invented client addresses, and a
 configuration. Every name and number in it is invented.
 

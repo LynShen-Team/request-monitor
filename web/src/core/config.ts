@@ -1,6 +1,6 @@
 /** What a deployment may set about how the screen presents itself. Every field is optional. */
 export interface ScreenConfig {
-  /** Shown in the header. Default: 数据大屏. */
+  /** Shown in the header and the browser tab. Default: Request Monitor (the service's default too). */
   title: string;
   /** Logo per theme, as a URL or a data URI; drawn left of the title. */
   logo?: { day: string; night: string };
@@ -10,7 +10,7 @@ export interface ScreenConfig {
   attribution?: { text: string; url?: string };
 }
 
-export const DEFAULT_CONFIG: ScreenConfig = { title: "数据大屏" };
+export const DEFAULT_CONFIG: ScreenConfig = { title: "Request Monitor" };
 
 export interface ConfigSource {
   load(): Promise<ScreenConfig>;

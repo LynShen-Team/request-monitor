@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "ops-screen",
+      "name": "request-monitor-web",
       "dependencies": {
         "lucide-react": "^1.74.0",
         "react": "^19.3.1",

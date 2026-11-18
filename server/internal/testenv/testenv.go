@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"opsscreen/internal/devseed"
-	"opsscreen/internal/gateway/lynshen"
-	"opsscreen/internal/geo"
-	"opsscreen/internal/ingest"
-	"opsscreen/internal/screen"
-	"opsscreen/internal/store"
-	"opsscreen/internal/upstream"
+	"request-monitor/internal/devseed"
+	"request-monitor/internal/gateway/lynshen"
+	"request-monitor/internal/geo"
+	"request-monitor/internal/ingest"
+	"request-monitor/internal/screen"
+	"request-monitor/internal/store"
+	"request-monitor/internal/upstream"
 
-	"opsscreen/internal/config"
+	"request-monitor/internal/config"
 )
 
 // Now is the fixed present of every test environment.
@@ -77,7 +77,7 @@ func New(t testing.TB, o Options) *Env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storePath := filepath.Join(dir, "opsscreen.db")
+	storePath := filepath.Join(dir, store.FileName)
 	st, err := store.Open(storePath, loc)
 	if err != nil {
 		t.Fatal(err)

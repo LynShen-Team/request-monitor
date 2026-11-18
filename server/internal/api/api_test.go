@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"opsscreen/internal/api"
-	"opsscreen/internal/config"
-	"opsscreen/internal/devseed"
-	"opsscreen/internal/testenv"
-	"opsscreen/internal/webui"
+	"request-monitor/internal/api"
+	"request-monitor/internal/config"
+	"request-monitor/internal/devseed"
+	"request-monitor/internal/testenv"
+	"request-monitor/internal/webui"
 )
 
 func server(env *testenv.Env, cfg *config.Config) *api.Server {
@@ -143,7 +143,7 @@ func TestAPI(t *testing.T) {
 		t.Fatalf("meta: %v %s", err, body)
 	}
 	_, body = get(t, guest, "GET", "/api/config", nil)
-	if strings.TrimSpace(body) != `{"title":"数据大屏"}` {
+	if strings.TrimSpace(body) != `{"title":"Request Monitor"}` {
 		t.Fatalf("config: %s", body)
 	}
 

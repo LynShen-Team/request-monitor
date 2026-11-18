@@ -15,7 +15,7 @@ const option = (name: string) => {
 };
 const configPath = option("--config");
 const samplePath = option("--sample");
-const out = option("--out") ?? join(dist, "ops-screen.html");
+const out = option("--out") ?? join(dist, "request-monitor.html");
 
 let html = readFileSync(join(dist, "index.html"), "utf8");
 const read = (href: string) => readFileSync(join(dist, href.replace(/^\.?\//, "")), "utf8");
@@ -28,7 +28,11 @@ html = html.replace(/<link rel="icon"[^>]*>/g, "");
 if (/(src|href)="\.?\/assets\//.test(html)) throw new Error("an asset reference is left in the HTML");
 
 if (configPath) {
-  const config = JSON.parse(readFileSync(configPath, "utf8")) as { logo?: Record<string, string> };
+  const config = JSON.parse(readFileSync(configPath, "utf8")) as { title?: unknown; logo?: Record<string, string> };
+  if (typeof config.title === "string" && config.title.trim() !== "") {
+    const title = config.title.trim().slice(0, 40).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    html = html.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`);
+  }
   const types: Record<string, string> = { ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp" };
   for (const key of ["day", "night"]) {
     const value = config.logo?.[key];

@@ -31,12 +31,12 @@ const noSubscribe = () => () => undefined;
 declare global {
   interface Window {
     /** Frame-stepping hook of `?clock=manual` (screenshots and recordings). */
-    __opsScreen?: { advance: (ms: number) => void; engine: OpsEngine; scene: Scene3D };
+    __requestMonitor?: { advance: (ms: number) => void; engine: OpsEngine; scene: Scene3D };
   }
 }
 
 /**
- * Gateway ops screen, PREVIEW build: a full-viewport scene (globe or flat map), live metrics and
+ * Request Monitor, PREVIEW build: a full-viewport scene (globe or flat map), live metrics and
  * a 24 h / 7 d / 30 d replay. It reads sample data (`preview/`) and sends no request.
  */
 export default function App() {
@@ -53,6 +53,10 @@ export default function App() {
   // Null until the identity source has answered; the screen shows nothing role-dependent before.
   const [role, setRole] = useState<Role | null>(null);
   const [config, setConfig] = useState<ScreenConfig>(DEFAULT_CONFIG);
+  // The browser tab shows the configured title too, not only the header (spec OS-U5).
+  useEffect(() => {
+    document.title = config.title;
+  }, [config.title]);
   const [sources, setSources] = useState<Pick<Sources, "kind" | "backfilling" | "checkBackfilling" | "minClients"> | null>(null);
   // The data source did not answer at start; `attempt` counts the tries.
   const [failed, setFailed] = useState(false);
@@ -166,7 +170,7 @@ export default function App() {
         },
       });
       if (manual) {
-        window.__opsScreen = {
+        window.__requestMonitor = {
           engine: created,
           scene,
           advance: (ms) => {
@@ -193,7 +197,7 @@ export default function App() {
       observer.disconnect();
       scene.dispose();
       sceneRef.current = null;
-      delete window.__opsScreen;
+      delete window.__requestMonitor;
     };
     // The scene is created once; a theme change is applied by the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps

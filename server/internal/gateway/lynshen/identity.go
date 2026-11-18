@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"opsscreen/internal/identity"
+	"request-monitor/internal/identity"
 )
 
 // sessionCookie is the cookie the gateway sets for the parent domain of its public origin

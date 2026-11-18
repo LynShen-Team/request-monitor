@@ -31,13 +31,38 @@ type Config struct {
 	Screen   Screen     `toml:"screen"`
 	Upstream []Upstream `toml:"upstream"`
 	Dev      Dev        `toml:"dev"`
+
+	// LegacyEnv lists the legacy environment variables this configuration was read from (spec
+	// OS-B9), so that the service can warn about them.
+	LegacyEnv []string `toml:"-"`
+}
+
+// The environment variables the service reads. Each has a legacy name from before the project was
+// renamed (spec OS-B9); the legacy name is read only when the current one is unset or empty.
+const (
+	EnvGatewayDSN       = "REQUEST_MONITOR_GATEWAY_DSN"
+	EnvListen           = "REQUEST_MONITOR_LISTEN"
+	LegacyEnvGatewayDSN = "OPSSCREEN_GATEWAY_DSN"
+	LegacyEnvListen     = "OPSSCREEN_LISTEN"
+)
+
+// env returns the value of the variable name, or else of legacy, and whether it came from legacy.
+func env(name, legacy string) (string, bool) {
+	if v := os.Getenv(name); v != "" {
+		return v, false
+	}
+	if v := os.Getenv(legacy); v != "" {
+		return v, true
+	}
+	return "", false
 }
 
 type Gateway struct {
 	// Kind is the adapter: "lynshen" (the only one built so far).
 	Kind string `toml:"kind"`
 	// DSN is the read-only connection string of the gateway database. The environment variable
-	// OPSSCREEN_GATEWAY_DSN overrides it, so the secret need not be in the file.
+	// REQUEST_MONITOR_GATEWAY_DSN (or its legacy name OPSSCREEN_GATEWAY_DSN) overrides it, so the
+	// secret need not be in the file.
 	DSN string `toml:"dsn"`
 	// APIURL is the base URL of the gateway's own HTTP API. The service asks it who a visitor is
 	// (spec section 12). Empty: every visitor is a guest.
@@ -132,11 +157,17 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("config: %s: unknown key %q", path, undecoded[0].String())
 		}
 	}
-	if v := os.Getenv("OPSSCREEN_GATEWAY_DSN"); v != "" {
+	if v, legacy := env(EnvGatewayDSN, LegacyEnvGatewayDSN); v != "" {
 		cfg.Gateway.DSN = v
+		if legacy {
+			cfg.LegacyEnv = append(cfg.LegacyEnv, LegacyEnvGatewayDSN)
+		}
 	}
-	if v := os.Getenv("OPSSCREEN_LISTEN"); v != "" {
+	if v, legacy := env(EnvListen, LegacyEnvListen); v != "" {
 		cfg.Listen = v
+		if legacy {
+			cfg.LegacyEnv = append(cfg.LegacyEnv, LegacyEnvListen)
+		}
 	}
 	if cfg.Listen == "" {
 		cfg.Listen = "127.0.0.1:8787"
@@ -182,7 +213,7 @@ func (c *Config) validate() error {
 		return fmt.Errorf("config: gateway.kind %q is not supported; this build supports \"lynshen\"", c.Gateway.Kind)
 	}
 	if c.Gateway.DSN == "" {
-		return fmt.Errorf("config: gateway.dsn is empty; set it in the file or in OPSSCREEN_GATEWAY_DSN")
+		return fmt.Errorf("config: gateway.dsn is empty; set it in the file or in %s", EnvGatewayDSN)
 	}
 	if c.Geo.MinClients < 1 {
 		return fmt.Errorf("config: geo.min_clients must be at least 1")

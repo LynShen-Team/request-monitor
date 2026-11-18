@@ -16,9 +16,16 @@ func write(t *testing.T, text string) string {
 	return path
 }
 
+// clearEnv empties every environment variable the configuration reads.
+func clearEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{EnvGatewayDSN, EnvListen, LegacyEnvGatewayDSN, LegacyEnvListen} {
+		t.Setenv(name, "")
+	}
+}
+
 func TestLoad(t *testing.T) {
-	t.Setenv("OPSSCREEN_GATEWAY_DSN", "")
-	t.Setenv("OPSSCREEN_LISTEN", "")
+	clearEnv(t)
 	cfg, err := Load(write(t, "[gateway]\ndsn = \"postgres://u@h/db\"\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -58,16 +65,33 @@ func TestLoad(t *testing.T) {
 		t.Fatalf("access.guests = false: %v", err)
 	}
 	// The DSN can come from the environment, and dev admin is accepted on loopback.
-	t.Setenv("OPSSCREEN_GATEWAY_DSN", "postgres://env@h/db")
+	t.Setenv(EnvGatewayDSN, "postgres://env@h/db")
 	cfg, err = Load(write(t, "listen = \"[::1]:9000\"\n[dev]\nviewer = \"admin\"\n"))
-	if err != nil || cfg.Gateway.DSN != "postgres://env@h/db" {
-		t.Fatalf("environment DSN: %v", err)
+	if err != nil || cfg.Gateway.DSN != "postgres://env@h/db" || len(cfg.LegacyEnv) != 0 {
+		t.Fatalf("environment DSN: %v %+v", err, cfg)
+	}
+}
+
+// The variables from before the rename still work, and the current names win over them (OS-B9).
+func TestLegacyEnv(t *testing.T) {
+	clearEnv(t)
+	t.Setenv(LegacyEnvGatewayDSN, "postgres://legacy@h/db")
+	t.Setenv(LegacyEnvListen, "127.0.0.1:9002")
+	cfg, err := Load(write(t, "[gateway]\ndsn = \"postgres://file@h/db\"\n"))
+	if err != nil || cfg.Gateway.DSN != "postgres://legacy@h/db" || cfg.Listen != "127.0.0.1:9002" ||
+		strings.Join(cfg.LegacyEnv, ",") != LegacyEnvGatewayDSN+","+LegacyEnvListen {
+		t.Fatalf("legacy names: %v %+v", err, cfg)
+	}
+	t.Setenv(EnvGatewayDSN, "postgres://current@h/db")
+	t.Setenv(EnvListen, "127.0.0.1:9001")
+	cfg, err = Load(write(t, "[gateway]\ndsn = \"postgres://file@h/db\"\n"))
+	if err != nil || cfg.Gateway.DSN != "postgres://current@h/db" || cfg.Listen != "127.0.0.1:9001" || len(cfg.LegacyEnv) != 0 {
+		t.Fatalf("current names must win: %v %+v", err, cfg)
 	}
 }
 
 func TestExampleFileLoads(t *testing.T) {
-	t.Setenv("OPSSCREEN_GATEWAY_DSN", "")
-	t.Setenv("OPSSCREEN_LISTEN", "")
+	clearEnv(t)
 	if _, err := Load("../../config.example.toml"); err != nil {
 		t.Fatalf("config.example.toml does not load: %v", err)
 	}

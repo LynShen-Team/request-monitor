@@ -11,10 +11,10 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"opsscreen/internal/devseed"
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/gateway/lynshen"
-	"opsscreen/internal/testenv"
+	"request-monitor/internal/devseed"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/gateway/lynshen"
+	"request-monitor/internal/testenv"
 )
 
 func demo(t *testing.T) string {
@@ -34,7 +34,7 @@ func TestOnDemoFile(t *testing.T) {
 func TestOnPostgres(t *testing.T) {
 	dsn := testenv.PostgresDSN()
 	if dsn == "" {
-		t.Skip("OPSSCREEN_TEST_PG_DSN is not set")
+		t.Skip("REQUEST_MONITOR_TEST_PG_DSN is not set")
 	}
 	fixture := demo(t)
 	scoped := testenv.LoadPostgres(t, fixture, dsn)

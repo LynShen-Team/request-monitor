@@ -12,8 +12,14 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// PostgresDSN is the database that tests may fill, or "" when none is offered.
-func PostgresDSN() string { return os.Getenv("OPSSCREEN_TEST_PG_DSN") }
+// PostgresDSN is the database that tests may fill, or "" when none is offered. It is named by
+// REQUEST_MONITOR_TEST_PG_DSN, or by its legacy name OPSSCREEN_TEST_PG_DSN (spec OS-ST2, OS-B9).
+func PostgresDSN() string {
+	if v := os.Getenv("REQUEST_MONITOR_TEST_PG_DSN"); v != "" {
+		return v
+	}
+	return os.Getenv("OPSSCREEN_TEST_PG_DSN")
+}
 
 // The three tables of the gateway that the adapter reads, with the column types the gateway's
 // own schema gives them (text ids, bigint milliseconds, integer flags).
@@ -54,7 +60,7 @@ func LoadPostgres(t testing.TB, fixture, dsn string) string {
 	if _, err := rand.Read(random); err != nil {
 		t.Fatal(err)
 	}
-	schema := "opsscreen_test_" + hex.EncodeToString(random)
+	schema := "request_monitor_test_" + hex.EncodeToString(random)
 	parsed, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)

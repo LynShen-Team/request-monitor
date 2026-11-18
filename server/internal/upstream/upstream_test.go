@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"testing"
 
-	"opsscreen/internal/config"
-	"opsscreen/internal/geo"
+	"request-monitor/internal/config"
+	"request-monitor/internal/geo"
 )
 
 type fakeGeo map[string]geo.Place

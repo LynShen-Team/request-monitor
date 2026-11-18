@@ -10,9 +10,9 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/gateway/lynshen"
-	"opsscreen/internal/testenv"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/gateway/lynshen"
+	"request-monitor/internal/testenv"
 )
 
 func TestLiveRequestsOnDemoFile(t *testing.T) {
@@ -28,7 +28,7 @@ func TestLiveRequestsOnDemoFile(t *testing.T) {
 func TestLiveRequestsOnPostgres(t *testing.T) {
 	dsn := testenv.PostgresDSN()
 	if dsn == "" {
-		t.Skip("OPSSCREEN_TEST_PG_DSN is not set")
+		t.Skip("REQUEST_MONITOR_TEST_PG_DSN is not set")
 	}
 	scoped := testenv.LoadPostgres(t, demo(t), dsn)
 	writer, err := sql.Open("pgx", scoped)

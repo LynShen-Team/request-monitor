@@ -1,8 +1,8 @@
-# Configuration of the ops screen service. Every key is optional unless it says otherwise.
+# Configuration of Request Monitor. Every key is optional unless it says otherwise.
 
 # Address to listen on. Put a reverse proxy with TLS in front of it.
 listen = "127.0.0.1:8787"
-# Directory of the service's own database (5-minute counts only).
+# Directory of the service's own database, request-monitor.db (5-minute counts only).
 data_dir = "data"
 # Where a day begins. Days matter for the distinct-client rule of the regions.
 timezone = "Asia/Shanghai"
@@ -14,7 +14,8 @@ timezone = "Asia/Shanghai"
 kind = "lynshen"
 # REQUIRED. Connection string of the gateway database, for an account that can only SELECT from
 # request_logs, monoize_providers, and monoize_groups. Prefer a read replica. It can be given in
-# the environment variable OPSSCREEN_GATEWAY_DSN instead, so the secret is not in this file.
+# the environment variable REQUEST_MONITOR_GATEWAY_DSN instead, so the secret is not in this file.
+# (The name from before the rename, OPSSCREEN_GATEWAY_DSN, is still read when the new one is unset.)
 dsn = "postgres://readonly:CHANGE-ME@127.0.0.1:5432/gateway"
 # Base URL of the gateway's own HTTP API, reachable from this service (an internal address is
 # best). The service asks it who a visitor is. Empty: every visitor is a guest.
@@ -57,11 +58,12 @@ interval_seconds = 30
 # window_minutes = 15
 
 [screen]
-# The project carries no mark of its own. Set a title, a note, and logo files here.
-# title = "数据大屏"
+# The page shows the title "Request Monitor" and no mark by default. Set your own title, a note,
+# and logo files here.
+# title = "Request Monitor"
 # note = ""
-# logo_day_file = "/etc/opsscreen/logo-day.svg"
-# logo_night_file = "/etc/opsscreen/logo-night.svg"
+# logo_day_file = "/etc/request-monitor/logo-day.svg"
+# logo_night_file = "/etc/request-monitor/logo-night.svg"
 
 # Fix the place of the Channels whose base URL host matches. Without an entry the host is
 # resolved and looked up in the geo database once a day. `host` is an exact name or a suffix that

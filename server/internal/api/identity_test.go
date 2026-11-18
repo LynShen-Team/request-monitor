@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"opsscreen/internal/api"
-	"opsscreen/internal/config"
-	"opsscreen/internal/devseed"
-	"opsscreen/internal/gateway/lynshen"
-	"opsscreen/internal/identity"
-	"opsscreen/internal/testenv"
-	"opsscreen/internal/webui"
+	"request-monitor/internal/api"
+	"request-monitor/internal/config"
+	"request-monitor/internal/devseed"
+	"request-monitor/internal/gateway/lynshen"
+	"request-monitor/internal/identity"
+	"request-monitor/internal/testenv"
+	"request-monitor/internal/webui"
 )
 
 // fakeGateway answers GET /api/dashboard/auth/me like the gateway: a role for a known session

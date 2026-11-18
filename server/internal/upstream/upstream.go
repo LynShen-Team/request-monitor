@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"opsscreen/internal/config"
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/geo"
-	"opsscreen/internal/store"
+	"request-monitor/internal/config"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/geo"
+	"request-monitor/internal/store"
 )
 
 // Locator assigns an upstream site to every route.

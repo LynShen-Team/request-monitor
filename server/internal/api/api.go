@@ -12,11 +12,11 @@ import (
 	"path"
 	"strings"
 
-	"opsscreen/internal/config"
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/geo"
-	"opsscreen/internal/identity"
-	"opsscreen/internal/screen"
+	"request-monitor/internal/config"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/geo"
+	"request-monitor/internal/identity"
+	"request-monitor/internal/screen"
 )
 
 // Server serves the screen.
@@ -169,12 +169,16 @@ func (s *Server) whoami(r *http.Request) (any, error) {
 	return answer, nil
 }
 
+// DefaultTitle is the page title when the configuration sets none (spec OS-U5, OS-B9). It matches
+// DEFAULT_CONFIG in web/src/core/config.ts.
+const DefaultTitle = "Request Monitor"
+
 // screenConfig answers a ScreenConfig of web/src/core/config.ts (spec OS-SH2, OS-SH6).
 func (s *Server) screenConfig(_ *http.Request) (any, error) {
 	screen := s.cfg.Screen
 	out := map[string]any{"title": screen.Title}
 	if screen.Title == "" {
-		out["title"] = "数据大屏"
+		out["title"] = DefaultTitle
 	}
 	if screen.Note != "" {
 		out["note"] = screen.Note

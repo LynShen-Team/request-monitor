@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"opsscreen/internal/devseed"
-	"opsscreen/internal/ingest"
-	"opsscreen/internal/screen"
-	"opsscreen/internal/store"
-	"opsscreen/internal/testenv"
+	"request-monitor/internal/devseed"
+	"request-monitor/internal/ingest"
+	"request-monitor/internal/screen"
+	"request-monitor/internal/store"
+	"request-monitor/internal/testenv"
 )
 
 // Strings that must never be in the store or in an answer: client addresses, upstream hosts, and
@@ -58,7 +58,7 @@ func TestEndToEnd(t *testing.T) {
 func TestEndToEndPostgres(t *testing.T) {
 	dsn := testenv.PostgresDSN()
 	if dsn == "" {
-		t.Skip("OPSSCREEN_TEST_PG_DSN is not set")
+		t.Skip("REQUEST_MONITOR_TEST_PG_DSN is not set")
 	}
 	checkEndToEnd(t, testenv.New(t, testenv.Options{Postgres: dsn}))
 }

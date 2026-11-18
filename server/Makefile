@@ -2,7 +2,7 @@
 .PHONY: build test web clean
 
 build: web
-	go build -tags embedweb -trimpath -o bin/opsscreen ./cmd/opsscreen
+	go build -tags embedweb -trimpath -o bin/request-monitor ./cmd/request-monitor
 
 # Build web/ and copy the result to where the binary embeds it from.
 web:

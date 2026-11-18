@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/hist"
-	"opsscreen/internal/store"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/hist"
+	"request-monitor/internal/store"
 )
 
 // Windows of the replay (spec OS-D4): fine buckets per step, and steps per window.

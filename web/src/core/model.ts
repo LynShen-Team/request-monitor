@@ -1,4 +1,4 @@
-/** Data contract of the ops screen. The preview fills it from sample data; production fills it from the API. */
+/** Data contract of Request Monitor. The preview fills it from sample data; production fills it from the API. */
 
 export type FlowStatus = "success" | "error" | "client_gone";
 export type ReplayWindow = "24h" | "7d" | "30d";

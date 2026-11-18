@@ -1,4 +1,4 @@
-# Ops Screen: Screen Specification (draft)
+# Request Monitor: Screen Specification (draft)
 
 ## 0. Status
 
@@ -18,7 +18,7 @@ OS-P1a. The build decides the data source (`web/src/sources.ts`):
 | --- | --- |
 | `bun run build:single` | preview |
 | `bun run dev` | preview |
-| `OPS_API=<service URL> bun run dev` | network; the dev server forwards `/api` to that URL |
+| `REQUEST_MONITOR_API=<service URL> bun run dev` | network; the dev server forwards `/api` to that URL (`OPS_API` is read when it is unset, `docs/spec-service.md` OS-B9) |
 | `bun run build` | network. This is the build that the service embeds and serves |
 
 In a network build, `?source=preview` shows the built-in sample instead and sends no request to
@@ -331,14 +331,19 @@ by a dot in the status colour beside the text. The page has one headline figure 
 second); the panels carry no decorative frame, index number, or uppercase label.
 
 OS-U3. With `?clock=manual` the page does not start its animation loop;
-`window.__opsScreen.advance(ms)` advances the screen clock and draws one frame.
+`window.__requestMonitor.advance(ms)` advances the screen clock and draws one frame.
 
-OS-U4. All copy is Simplified Chinese.
+OS-U4. All copy is Simplified Chinese. The default title is the product name `Request Monitor`
+(OS-U5).
 
-OS-U5. Brand. The page shows the title `数据大屏` and no mark by default. A deployment supplies a
+OS-U5. Brand. The page shows the title `Request Monitor` and no mark by default, in the header
+and as the title of the browser tab (`docs/spec-service.md` OS-B9). A deployment supplies a
 `ScreenConfig` (`web/src/core/config.ts`) with a title, a logo for the day theme, a logo for the
 night theme, and an attribution line; each is optional. The logo is drawn left of the title at a
 height of 24 design pixels. The attribution is one line at the bottom right of the scene with an
 optional link. In preview mode the config is read from `window.__OPS_CONFIG__`, which
 `scripts/inline.ts --config <file>` writes into the single-file build; without it the defaults
-apply. The repository MUST NOT contain the mark of a real organisation.
+apply; with `--config`, the title of the file's browser tab is the configured title too. The page
+MUST NOT ship the mark of a real organisation by default. The only marks in the repository are the
+LynShen icon and logo in `docs/images/`, which the README shows (`docs/spec-service.md` OS-B8);
+the page never loads them.

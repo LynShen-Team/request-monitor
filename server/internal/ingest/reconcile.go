@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/store"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/store"
 )
 
 // countingAdapter is a gateway that can count its own requests per bucket, Channel, and status.

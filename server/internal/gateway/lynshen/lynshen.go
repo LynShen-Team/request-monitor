@@ -16,13 +16,13 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
-	"opsscreen/internal/gateway"
+	"request-monitor/internal/gateway"
 )
 
 // Adapter implements gateway.Adapter for LynShen.
 type Adapter struct {
 	db *sql.DB
-	// postgres is false only for the SQLite fixture used by tests and by `opsscreen devseed`.
+	// postgres is false only for the SQLite fixture used by tests and by `request-monitor devseed`.
 	postgres bool
 
 	mu     sync.Mutex

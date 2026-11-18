@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"opsscreen/internal/api"
-	"opsscreen/internal/config"
-	"opsscreen/internal/devseed"
-	"opsscreen/internal/gateway/lynshen"
-	"opsscreen/internal/identity"
-	"opsscreen/internal/screen"
-	"opsscreen/internal/testenv"
-	"opsscreen/internal/webui"
+	"request-monitor/internal/api"
+	"request-monitor/internal/config"
+	"request-monitor/internal/devseed"
+	"request-monitor/internal/gateway/lynshen"
+	"request-monitor/internal/identity"
+	"request-monitor/internal/screen"
+	"request-monitor/internal/testenv"
+	"request-monitor/internal/webui"
 )
 
 func TestLiveEndpoint(t *testing.T) {

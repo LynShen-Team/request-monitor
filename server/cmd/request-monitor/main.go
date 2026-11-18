@@ -1,8 +1,8 @@
-// Command opsscreen serves the ops screen for one LLM gateway.
+// Command request-monitor serves Request Monitor for one LLM gateway.
 //
-//	opsscreen serve     -config config.toml   run the service
-//	opsscreen devseed   -dir demo             write an invented demo gateway and a configuration
-//	opsscreen reconcile -config config.toml   compare the rollups with the gateway's own counts
+//	request-monitor serve     -config config.toml   run the service
+//	request-monitor devseed   -dir demo             write an invented demo gateway and a configuration
+//	request-monitor reconcile -config config.toml   compare the rollups with the gateway's own counts
 package main
 
 import (
@@ -19,18 +19,18 @@ import (
 	"syscall"
 	"time"
 
-	"opsscreen/internal/api"
-	"opsscreen/internal/config"
-	"opsscreen/internal/devseed"
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/gateway/lynshen"
-	"opsscreen/internal/geo"
-	"opsscreen/internal/identity"
-	"opsscreen/internal/ingest"
-	"opsscreen/internal/screen"
-	"opsscreen/internal/store"
-	"opsscreen/internal/upstream"
-	"opsscreen/internal/webui"
+	"request-monitor/internal/api"
+	"request-monitor/internal/config"
+	"request-monitor/internal/devseed"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/gateway/lynshen"
+	"request-monitor/internal/geo"
+	"request-monitor/internal/identity"
+	"request-monitor/internal/ingest"
+	"request-monitor/internal/screen"
+	"request-monitor/internal/store"
+	"request-monitor/internal/upstream"
+	"request-monitor/internal/webui"
 )
 
 func main() {
@@ -51,13 +51,13 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "opsscreen:", err)
+		fmt.Fprintln(os.Stderr, "request-monitor:", err)
 		os.Exit(1)
 	}
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: opsscreen serve|devseed|reconcile [flags]")
+	fmt.Fprintln(os.Stderr, "usage: request-monitor serve|devseed|reconcile [flags]")
 }
 
 // parts are the pieces every command that reads a gateway needs.
@@ -77,7 +77,14 @@ func open(configPath string) (*parts, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return nil, err
 	}
-	st, err := store.Open(filepath.Join(cfg.DataDir, "opsscreen.db"), cfg.Location())
+	for _, name := range cfg.LegacyEnv {
+		slog.Warn("legacy environment variable; rename it", "name", name, "spec", "OS-B9")
+	}
+	storePath := store.PathIn(cfg.DataDir)
+	if filepath.Base(storePath) == store.LegacyFileName {
+		slog.Info("using the store file from before the rename", "path", storePath, "spec", "OS-B9")
+	}
+	st, err := store.Open(storePath, cfg.Location())
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +214,7 @@ func seed(args []string) error {
 	if err := devseed.Generate(abs, devseed.Options{Days: *days, PerDay: *perDay}); err != nil {
 		return err
 	}
-	fmt.Printf("wrote an invented demo gateway to %s\nrun: opsscreen serve -config %s\n", abs, filepath.Join(abs, devseed.ConfigFile))
+	fmt.Printf("wrote an invented demo gateway to %s\nrun: request-monitor serve -config %s\n", abs, filepath.Join(abs, devseed.ConfigFile))
 	return nil
 }
 

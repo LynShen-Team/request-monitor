@@ -2,12 +2,13 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/geo"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/geo"
 )
 
 func open(t *testing.T) *Store {
@@ -18,6 +19,29 @@ func open(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	return st
+}
+
+// A data directory from before the rename keeps its store file; a new or renamed one uses the
+// current name (spec OS-B9).
+func TestPathIn(t *testing.T) {
+	touch := func(path string) {
+		t.Helper()
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := t.TempDir()
+	if got := PathIn(dir); got != filepath.Join(dir, FileName) {
+		t.Fatalf("empty directory: %s", got)
+	}
+	touch(filepath.Join(dir, LegacyFileName))
+	if got := PathIn(dir); got != filepath.Join(dir, LegacyFileName) {
+		t.Fatalf("only the legacy file: %s", got)
+	}
+	touch(filepath.Join(dir, FileName))
+	if got := PathIn(dir); got != filepath.Join(dir, FileName) {
+		t.Fatalf("both files: %s", got)
+	}
 }
 
 func routeTotal(t *testing.T, st *Store, from, to int64) int64 {

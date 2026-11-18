@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"opsscreen/internal/gateway/lynshen"
-	"opsscreen/internal/identity"
+	"request-monitor/internal/gateway/lynshen"
+	"request-monitor/internal/identity"
 )
 
 // fakeGateway stands in for the gateway's GET /api/dashboard/auth/me.

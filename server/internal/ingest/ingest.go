@@ -19,10 +19,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/geo"
-	"opsscreen/internal/hist"
-	"opsscreen/internal/store"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/geo"
+	"request-monitor/internal/hist"
+	"request-monitor/internal/store"
 )
 
 // Options tune the ingestor.

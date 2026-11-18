@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"opsscreen/internal/gateway"
-	"opsscreen/internal/geo"
-	"opsscreen/internal/store"
+	"request-monitor/internal/gateway"
+	"request-monitor/internal/geo"
+	"request-monitor/internal/store"
 )
 
 // Live mode by replay (spec section 13): the gateway writes a request's row when the request has
