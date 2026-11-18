@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-single
+.DS_Store
+*.local
+*.log
+# IP databases are large and have their own licences: downloaded at build or first start, never committed.
+*.mmdb
+*.xdb
+# Local stores of the service.
+*.sqlite
+*.sqlite3
+*.db

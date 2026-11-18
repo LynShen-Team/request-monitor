@@ -1,0 +1,15 @@
+Ops Screen
+Copyright 2026 LynShen
+
+This project comes from LynShen (https://lynshen.org).
+
+It uses the following third-party data and software:
+
+- Coastline data from Natural Earth (public domain), as packaged by world-atlas
+  (ISC License, Copyright 2013-2019 Michael Bostock).
+- three.js (MIT License), React (MIT License), topojson-client (ISC License),
+  Lucide icons (ISC License).
+
+The service can resolve client addresses to regions with the IP to City Lite
+database by DB-IP (https://db-ip.com), licensed under CC BY 4.0. That database
+is not part of this repository; a page that shows its results links to DB-IP.
