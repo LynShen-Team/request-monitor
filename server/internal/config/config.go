@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ type Config struct {
 	WebDir string `toml:"web_dir"`
 
 	Gateway  Gateway    `toml:"gateway"`
+	Access   Access     `toml:"access"`
 	Geo      Geo        `toml:"geo"`
 	Ingest   Ingest     `toml:"ingest"`
 	Screen   Screen     `toml:"screen"`
@@ -36,11 +38,23 @@ type Gateway struct {
 	// DSN is the read-only connection string of the gateway database. The environment variable
 	// OPSSCREEN_GATEWAY_DSN overrides it, so the secret need not be in the file.
 	DSN string `toml:"dsn"`
+	// APIURL is the base URL of the gateway's own HTTP API. The service asks it who a visitor is
+	// (spec section 12). Empty: every visitor is a guest.
+	APIURL string `toml:"api_url"`
 	// Where the gateway itself is, for the map.
 	Name   string  `toml:"name"`
 	Region string  `toml:"region"`
 	Lat    float64 `toml:"lat"`
 	Lon    float64 `toml:"lon"`
+}
+
+// Access is the guest setting (spec OS-SN5).
+type Access struct {
+	// Guests is false when a visitor who is not signed in to the gateway must not open the
+	// screen. Not set: guests may open it and receive the restricted view.
+	Guests *bool `toml:"guests"`
+	// LoginURL is where such a visitor is sent to sign in.
+	LoginURL string `toml:"login_url"`
 }
 
 type Geo struct {
@@ -159,6 +173,17 @@ func (c *Config) validate() error {
 	if c.Ingest.BackfillDays < 1 || c.Ingest.BackfillDays > 90 {
 		return fmt.Errorf("config: ingest.backfill_days must be between 1 and 90")
 	}
+	for key, value := range map[string]string{"gateway.api_url": c.Gateway.APIURL, "access.login_url": c.Access.LoginURL} {
+		if value == "" {
+			continue
+		}
+		if u, err := url.Parse(value); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("config: %s must be an http or https URL", key)
+		}
+	}
+	if !c.GuestsAllowed() && c.Gateway.APIURL == "" && c.Dev.Viewer != "admin" {
+		return fmt.Errorf("config: access.guests = false needs gateway.api_url: without it nobody can be identified and nobody could open the screen")
+	}
 	switch c.Dev.Viewer {
 	case "", "guest":
 	case "admin":
@@ -175,6 +200,9 @@ func (c *Config) validate() error {
 	}
 	return nil
 }
+
+// GuestsAllowed reports whether a visitor who is not signed in may open the screen.
+func (c *Config) GuestsAllowed() bool { return c.Access.Guests == nil || *c.Access.Guests }
 
 // Loopback reports whether the service listens on a loopback address only.
 func (c *Config) Loopback() bool {

@@ -35,11 +35,22 @@ func TestLoad(t *testing.T) {
 		"backfill_days":          "[gateway]\ndsn = \"postgres://u@h/db\"\n[ingest]\nbackfill_days = 400\n",
 		"dev.viewer must be":     "[gateway]\ndsn = \"postgres://u@h/db\"\n[dev]\nviewer = \"root\"\n",
 		"[[upstream]] entry has": "[gateway]\ndsn = \"postgres://u@h/db\"\n[[upstream]]\nname = \"x\"\n",
+		"gateway.api_url must":   "[gateway]\ndsn = \"postgres://u@h/db\"\napi_url = \"gateway:8080\"\n",
+		"access.login_url must":  "[gateway]\ndsn = \"postgres://u@h/db\"\n[access]\nlogin_url = \"javascript:alert(1)\"\n",
+		"needs gateway.api_url":  "[gateway]\ndsn = \"postgres://u@h/db\"\n[access]\nguests = false\n",
 	}
 	for want, text := range cases {
 		if _, err := Load(write(t, text)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("config %q: error %v, want one that mentions %q", text, err, want)
 		}
+	}
+	// Guests are let in unless the configuration says otherwise.
+	if !cfg.GuestsAllowed() {
+		t.Fatal("guests must be allowed by default")
+	}
+	closed, err := Load(write(t, "[gateway]\ndsn = \"postgres://u@h/db\"\napi_url = \"http://127.0.0.1:8080\"\n[access]\nguests = false\nlogin_url = \"https://console.example.com/login\"\n"))
+	if err != nil || closed.GuestsAllowed() {
+		t.Fatalf("access.guests = false: %v", err)
 	}
 	// The DSN can come from the environment, and dev admin is accepted on loopback.
 	t.Setenv("OPSSCREEN_GATEWAY_DSN", "postgres://env@h/db")

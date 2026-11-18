@@ -30,6 +30,19 @@ func server(env *testenv.Env, cfg *config.Config) *api.Server {
 	})
 }
 
+// roleOf reads the role of an /api/identity answer.
+func roleOf(t *testing.T, body string) string {
+	t.Helper()
+	var answer struct {
+		Role    string
+		Allowed *bool
+	}
+	if err := json.Unmarshal([]byte(body), &answer); err != nil || answer.Allowed == nil {
+		t.Fatalf("identity answer %q: %v", body, err)
+	}
+	return answer.Role
+}
+
 func get(t *testing.T, s *api.Server, method, path string, headers map[string]string) (*http.Response, string) {
 	t.Helper()
 	request := httptest.NewRequest(method, path, nil)
@@ -51,7 +64,7 @@ func TestAPI(t *testing.T) {
 	guest := server(env, &config.Config{Listen: "127.0.0.1:8787"})
 
 	response, body := get(t, guest, "GET", "/api/identity", nil)
-	if response.StatusCode != 200 || strings.TrimSpace(body) != `{"role":"guest"}` {
+	if response.StatusCode != 200 || roleOf(t, body) != "guest" {
 		t.Fatalf("identity: %d %s", response.StatusCode, body)
 	}
 	if response.Header.Get("Cache-Control") != "no-store" || !strings.Contains(response.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") || response.Header.Get("X-Content-Type-Options") != "nosniff" {
@@ -59,7 +72,7 @@ func TestAPI(t *testing.T) {
 	}
 	// Nothing the browser sends raises the role.
 	_, body = get(t, guest, "GET", "/api/identity?role=admin&as=admin", map[string]string{"X-Role": "admin", "Authorization": "Bearer admin", "Cookie": "role=admin"})
-	if strings.TrimSpace(body) != `{"role":"guest"}` {
+	if roleOf(t, body) != "guest" {
 		t.Fatalf("a browser raised its own role: %s", body)
 	}
 
@@ -102,7 +115,7 @@ func TestAPI(t *testing.T) {
 	// dev.viewer = admin on a loopback listener serves the admin view.
 	admin := server(env, &config.Config{Listen: "127.0.0.1:8787", Dev: config.Dev{Viewer: "admin"}})
 	_, body = get(t, admin, "GET", "/api/identity", nil)
-	if strings.TrimSpace(body) != `{"role":"admin"}` {
+	if roleOf(t, body) != "admin" {
 		t.Fatalf("dev admin identity: %s", body)
 	}
 	_, body = get(t, admin, "GET", "/api/topology", nil)
@@ -111,7 +124,7 @@ func TestAPI(t *testing.T) {
 	}
 	// The same setting on a public listener is not honoured even if validation was skipped.
 	exposed := server(env, &config.Config{Listen: "0.0.0.0:8787", Dev: config.Dev{Viewer: "admin"}})
-	if _, body = get(t, exposed, "GET", "/api/identity", nil); strings.TrimSpace(body) != `{"role":"guest"}` {
+	if _, body = get(t, exposed, "GET", "/api/identity", nil); roleOf(t, body) != "guest" {
 		t.Fatalf("dev admin on a public listener: %s", body)
 	}
 

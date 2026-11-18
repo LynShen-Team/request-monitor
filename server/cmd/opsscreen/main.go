@@ -25,6 +25,7 @@ import (
 	"opsscreen/internal/gateway"
 	"opsscreen/internal/gateway/lynshen"
 	"opsscreen/internal/geo"
+	"opsscreen/internal/identity"
 	"opsscreen/internal/ingest"
 	"opsscreen/internal/screen"
 	"opsscreen/internal/store"
@@ -142,11 +143,27 @@ func serve(args []string) error {
 		MinClients: cfg.Geo.MinClients,
 	}, ing.Generation)
 
+	// Identification (spec section 12). Without the gateway's API address nobody can be
+	// identified and every visitor is a guest.
+	var verifier identity.Verifier
+	if cfg.Gateway.APIURL != "" {
+		v, err := lynshen.NewVerifier(cfg.Gateway.APIURL)
+		if err != nil {
+			return err
+		}
+		verifier = v
+	} else if cfg.Dev.Viewer != "admin" {
+		log.Warn("gateway.api_url is not set: every visitor is a guest and receives the restricted view")
+	}
+	if !cfg.GuestsAllowed() {
+		log.Info("access.guests = false: a visitor who is not signed in to the gateway cannot open the screen")
+	}
+
 	var web fs.FS = webui.Dist()
 	if cfg.WebDir != "" {
 		web = os.DirFS(cfg.WebDir)
 	}
-	handler := api.New(api.Options{Config: cfg, Screen: scr, Adapter: p.adapter, Geo: p.geo, GeoReady: p.geoReady, Backfilling: ing.Backfilling, Web: web, Log: log})
+	handler := api.New(api.Options{Config: cfg, Screen: scr, Identity: identity.New(verifier), Adapter: p.adapter, Geo: p.geo, GeoReady: p.geoReady, Backfilling: ing.Backfilling, Web: web, Log: log})
 	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

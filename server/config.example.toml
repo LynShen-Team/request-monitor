@@ -16,11 +16,20 @@ kind = "lynshen"
 # request_logs, monoize_providers, and monoize_groups. Prefer a read replica. It can be given in
 # the environment variable OPSSCREEN_GATEWAY_DSN instead, so the secret is not in this file.
 dsn = "postgres://readonly:CHANGE-ME@127.0.0.1:5432/gateway"
+# Base URL of the gateway's own HTTP API, reachable from this service (an internal address is
+# best). The service asks it who a visitor is. Empty: every visitor is a guest.
+# api_url = "http://127.0.0.1:8080"
 # Where the gateway itself is, for the map.
 name = "城市名"
 region = "国家或省"
 lat = 0.0
 lon = 0.0
+
+[access]
+# false: a visitor who is not signed in to the gateway cannot open the screen at all, and is
+# pointed to login_url. true (default): such a visitor sees the restricted view.
+# guests = true
+# login_url = "https://console.example.com/login"
 
 [geo]
 # A MaxMind-format city database: DB-IP City Lite (free, CC BY 4.0) or GeoLite2-City.
