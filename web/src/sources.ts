@@ -43,8 +43,8 @@ export async function openSources(params: URLSearchParams, now: number): Promise
       checkBackfilling: backfilling,
       minClients: net.meta.minClients,
       watch: (handlers) => {
-        net.replay.onRole = handlers.role;
-        net.replay.onLoginRequired = handlers.loginRequired;
+        net.session.onRole = handlers.role;
+        net.session.onLoginRequired = handlers.loginRequired;
       },
     };
   }

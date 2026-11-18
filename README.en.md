@@ -47,7 +47,7 @@ The page's copy is in Simplified Chinese.
 
 | Gateway | Status |
 | --- | --- |
-| LynShen | Supported (`gateway.kind = "lynshen"`): replay and identification; the live endpoint exists, the page does not read it yet |
+| LynShen | Supported (`gateway.kind = "lynshen"`): live mode by replay, history replay, and identification |
 | sub2api | Planned |
 | new-api | Planned |
 
@@ -171,7 +171,7 @@ Your own title and logo: set `[screen]` in the service; for the single-file prev
 | --- | --- |
 | Page (`web/`) | Works, on the built-in synthetic sample (preview) or on the service below |
 | Service (`server/`) | Replay and identification work; 30 days of rollups have matched a real LynShen gateway's own counts cell by cell |
-| Live mode | The service provides it (`/api/live`); the page does not read it yet, so it opens on the 24-hour replay |
+| Live mode | Works: the page opens on live mode with the last 30 minutes of history, and says so and retries when the service cannot be reached |
 | sub2api, new-api | Adapters not written yet |
 
 ## Repository layout
@@ -193,7 +193,7 @@ docs/                   specifications: spec-screen.md (page), spec-service.md (
 
 ```bash
 cd server && go vet ./... && go test ./...
-cd web && bun run lint && bun run build
+cd web && bun run lint && bun run test && bun run build
 ```
 
 The adapter tests run on SQLite by default; point `REQUEST_MONITOR_TEST_PG_DSN` at an empty PostgreSQL database they may fill to run them on PostgreSQL as well. Behaviour changes start in the specifications: [`docs/spec-screen.md`](docs/spec-screen.md) and [`docs/spec-service.md`](docs/spec-service.md).

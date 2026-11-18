@@ -74,6 +74,17 @@ export interface LiveSource {
   readonly baseline24h: { total: number; errors: number };
   /** Every event with `t <= now` not returned before, in time order. The first call returns warm-up history. */
   poll(now: number): LiveEvent[];
+  /** False until the source has delivered its first events (docs/spec-screen.md OS-N9.5). Absent: always ready. */
+  readonly ready?: boolean;
+  /** True while the source cannot read its events and the screen shows what it has (OS-N9.6). */
+  readonly stale?: boolean;
+  /**
+   * Set by the screen. The source calls it from `poll` before it returns events that replace all it
+   * returned before (OS-N9.3, OS-N9.4): the screen drops everything it built from them.
+   */
+  onReset?: () => void;
+  /** Stops the source for good (OS-N9.9). */
+  close?(): void;
 }
 
 export interface ReplayBucket {

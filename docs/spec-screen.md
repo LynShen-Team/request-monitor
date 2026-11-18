@@ -4,9 +4,8 @@
 
 OS-0. This file specifies the browser page in `web/`. The service that feeds it is specified in
 `docs/spec-service.md`. The page has two data sources: the preview (built-in sample data) and the
-network source, which reads the service. The network source reads replay data and the visitor's
-role; it has no live events, because the service does not have them yet
-(`docs/spec-service.md` OS-S0a).
+network source, which reads the service. The network source reads replay data, the visitor's role,
+and the service's live events (OS-N9).
 
 OS-P1. In preview mode the page MUST NOT send any network request. It reads its data only from
 `web/src/preview/`. `bun run build:single` produces one self-contained HTML file that runs from
@@ -35,7 +34,10 @@ repository.
 OS-D1. The screen reads two sources, declared in `web/src/core/model.ts`:
 
 - `LiveSource.poll(now)` returns, in time order, every `LiveEvent` with `t <= now` not returned
-  before. The first call also returns the events of the 30 minutes before the screen opened.
+  before. The first call that returns events also returns those of the 30 minutes before the
+  screen opened. A source may say that it has delivered nothing yet (`ready`, OS-N9.5) or that
+  its last read failed (`stale`, OS-N9.6), and it calls `onReset` before it returns events that
+  replace all it returned before (OS-N9.3).
 - `ReplaySource.load(window)` returns `ReplayData` for `window` in {`24h`, `7d`, `30d`}.
 
 OS-D2. A request lifecycle is the event sequence `start`, zero or more `route`, at most one `ttfb`,
@@ -83,20 +85,22 @@ OS-D5. Capabilities. A source states what its gateway records (`Capabilities` in
 
 | Capability | Value | The page |
 | --- | --- | --- |
-| `live` | `none` | disables `实时` and opens on the `24 小时` replay |
-| `live` | `replayed` | labels the control `准实时`; its tooltip says that a request appears after it ended |
-| `live` | `realtime` | labels the control `实时` |
+| `live` | `none` | disables `实时` (tooltip `这个数据服务还没有实时模式`) and opens on the `24 小时` replay |
+| `live` | `replayed` | labels the control `准实时`; its tooltip says that a request appears after it ended; opens on it |
+| `live` | `realtime` | labels the control `实时`; opens on it |
 | `errors` | `false` | shows `未记录` in place of the success rate and of the failure count; shows no success rate on a route row, in the timeline, in the tooltip, or in the detail card; omits `失败` from the legend; draws every upstream site in the dispatch colour instead of a status colour (OS-M6) |
 | `origin` | `false` | shows `这个网关没有记录请求的来源地区。` in place of the origin ranking |
 
-OS-D5a. Not implemented: the network source does not read the service's live events
-(`docs/spec-service.md` OS-SR6, `GET /api/live`). Until it does, it treats `live` as `none`
-whatever `api/meta` says, so that the screen opens on the replay and not on a live view that
-nothing feeds.
+OS-D5a. Opening view. `?range=24h|7d|30d` opens that replay. Otherwise the page opens on live mode
+when `capabilities.live` is `replayed` or `realtime`, and on the `24 小时` replay when it is `none`.
+When the source turns live mode off while the page runs (OS-N9.7), the page disables the live
+control and, if it showed live mode, switches to the `24 小时` replay.
 
 OS-D6. The origin counts of a bucket can sum to less than its request count: the service does not
 place a request whose client address has no known region. When the difference is at least 0.5
 requests and at least 0.1 % of the bucket set, the origin ranking has a row `未归入地区` with it.
+In live mode a request whose `start.origin` is `""` (`docs/spec-service.md` OS-SR4) draws no
+inbound arc and counts toward the row `未归入地区`.
 
 ## 1a. Network source
 
@@ -144,8 +148,8 @@ OS-N8. Sign-in (`docs/spec-service.md` OS-SN5). A deployment can let no guest in
 shows a message in place of the data and no figure (OS-N2a applies):
 
 1. When. At the start, `api/identity` answers `allowed: false`, or `api/meta` or `api/topology`
-   answers `401` with `error: "login_required"`. Later, a replay request gets that answer: the
-   page drops the data it shows and starts again, which leads to the message.
+   answers `401` with `error: "login_required"`. Later, a replay or live request gets that answer:
+   the page drops the data it shows and starts again, which leads to the message.
 2. What. The line `这块大屏要先登录网关才能看。`; a link `去登录` to `loginUrl` of `api/identity`,
    opened in a new tab without an opener; a button `我已登录，重新打开`; and a line that says that
    the screen opens by itself after the sign-in. The map stays on screen behind the message.
@@ -154,6 +158,40 @@ shows a message in place of the data and no figure (OS-N2a applies):
 4. While the message is shown the page asks `api/identity` every 15 s and whenever the tab
    becomes visible again, and starts again as soon as the answer says `allowed: true`. It does
    not ask the data endpoints in between.
+
+OS-N9. Live events (`docs/spec-service.md` section 13, OS-SR6). When `capabilities.live` of
+`api/meta` is not `none`, the network source reads `api/live` from the start on and in every mode,
+so that live mode has its history whenever it is selected. Its reader is `web/src/net/live.ts`.
+
+1. Cadence. The first request has no `after`. Each later request passes the `cursor` of the last
+   answer as `after`, and is sent `pollMs` after that answer arrived (at least 0.5 s and at most
+   60 s; 2 s when the answer has no usable value).
+2. Clock. The page runs its live clock `delayMs` behind the service: it takes the offset between
+   its own clock, at the first poll after an answer, and `now - delayMs` of that answer. It keeps
+   the offset of the first answer and of each answer with `reset: true`, and takes the offset of
+   another answer only when it differs from the kept one by more than 1 s. An event is applied
+   when the page's clock minus the offset reaches its `t`, and it is applied with `t` shifted by
+   the offset, so the figures and the timeline are on the page's clock. Events are applied in the
+   order of `t`; events with the same `t` keep the order of the answer.
+3. Reset. An answer with `reset: true` replaces the live events. The page drops the events it has
+   not applied yet and everything it built from the events it applied (requests in flight, the
+   feed, the live figures, and the 30-minute timeline), and then applies the events of the answer,
+   which hold the last 30 minutes.
+4. Topology version. When an answer has another `version` than the topology the page holds, the
+   page fetches `api/topology` and `api/identity` as in OS-N3, drops its live events, and asks
+   again without `after`; that answer is a reset. After 3 such rounds without a match the request
+   counts as failed (item 6). A topology change that a replay answer brings (OS-N3) also drops the
+   live events, and the next request has no `after`.
+5. Until the first answer has been applied, live mode shows no figure (OS-N2a).
+6. Failure. A request fails when no answer comes within 15 s, on a network error, on a status other
+   than those of items 7 and 8, or when the body is not a live answer. The page then tries again
+   after 5 s with the same `after`. While the last request failed, live mode shows the line
+   `实时数据暂时连不上，正在自动重试。` and keeps applying the events it already has; the line goes
+   away with the next answer.
+7. `404` with `error: "live_unavailable"`: the service has turned live mode off. The page stops
+   asking and treats `capabilities.live` as `none` from then on (OS-D5, OS-D5a).
+8. `401` with `error: "login_required"`: the page stops asking and handles it as OS-N8.1.
+9. The page stops asking when it starts again (OS-N2, OS-N8) or is closed.
 
 ## 2. Scene
 

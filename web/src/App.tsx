@@ -97,6 +97,8 @@ export default function App() {
     let retry = 0;
     let poll = 0;
     let onVisible: (() => void) | null = null;
+    // Stops the live reader of the sources this run opened (OS-N9.9).
+    let closeSources: (() => void) | null = null;
 
     void (async () => {
       const land = await loadLand();
@@ -142,7 +144,11 @@ export default function App() {
         retry = window.setTimeout(() => setAttempt((n) => n + 1), 10_000);
         return;
       }
-      if (disposed) return;
+      closeSources = () => opened.live.close?.();
+      if (disposed) {
+        closeSources();
+        return;
+      }
       setFailed(false);
       setGate(null);
       setRole(opened.role);
@@ -190,6 +196,7 @@ export default function App() {
 
     return () => {
       disposed = true;
+      closeSources?.();
       cancelAnimationFrame(frame);
       window.clearTimeout(retry);
       window.clearInterval(poll);
@@ -307,7 +314,7 @@ export default function App() {
   const live = snap.mode === "live";
   const scope = live ? "近 15 分钟" : snap.wholeWindow ? "整个时间窗" : "当前时段";
   // A failed refresh keeps the last data on screen; a window that never loaded has none to keep.
-  const notice = snap.stale ? (snap.ready ? "数据服务暂时连不上，显示的是上一次取到的数据。" : "数据服务暂时连不上，正在自动重试。") : sources?.backfilling ? "服务还在读取更早的历史，较早的时间段可能还是空的。" : null;
+  const notice = snap.stale ? (snap.mode === "live" ? "实时数据暂时连不上，正在自动重试。" : snap.ready ? "数据服务暂时连不上，显示的是上一次取到的数据。" : "数据服务暂时连不上，正在自动重试。") : sources?.backfilling ? "服务还在读取更早的历史，较早的时间段可能还是空的。" : null;
 
   return (
     <div ref={rootRef} className={`ops${manual ? " is-manual" : ""}`} style={theme.css as CSSProperties} data-theme={theme.id}>

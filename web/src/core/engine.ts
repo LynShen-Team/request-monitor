@@ -151,6 +151,9 @@ const REPLAY_SNAPSHOT_MS = 100;
 /** A full replay window plays in this many seconds at speed 1. */
 const REPLAY_SECONDS = 60;
 const IN_MS = 1500;
+/** The origin row of requests with no shown region (OS-D6). */
+const UNPLACED_KEY = "~none";
+const UNPLACED_NAME = "未归入地区";
 const OUT_MS = 1050;
 
 export const EMPTY_SNAPSHOT: Snapshot = {
@@ -244,6 +247,36 @@ export class OpsEngine {
     this.baseline24h = live.baseline24h;
     this.applyTopology();
     replaySource.onTopology = (topology, baseline24h) => this.setTopology(topology, baseline24h);
+    live.onReset = () => this.resetLive();
+  }
+
+  /**
+   * Drops everything built from the live events (docs/spec-screen.md OS-N9.3): the source is about
+   * to deliver events that replace them, the history of the last 30 minutes included.
+   */
+  private resetLive() {
+    if (this.mode === "live") {
+      // Release the arcs that the requests in flight hold; in replay mode no request holds one.
+      const gw = this.topology.gateway.id;
+      for (const flight of this.flights.values()) {
+        this.renderer.hold(`o:${flight.origin}`, gw, "in", -1);
+        if (flight.site) {
+          this.renderer.hold(gw, `up:${flight.site}`, "out", -1);
+          this.renderer.inflight(`up:${flight.site}`, -1);
+        }
+      }
+    }
+    this.flights.clear();
+    this.later.length = 0;
+    this.starts = [];
+    this.done = [];
+    this.ticker = [];
+    this.routeLastAt.clear();
+    this.extraTotal = 0;
+    this.extraErrors = 0;
+    this.failovers = 0;
+    this.lastSnapshot = -1e9;
+    this.lastMeta = -1e9;
   }
 
   /** Rebuilds the name tables and the map nodes from `this.topology`. */
@@ -470,6 +503,8 @@ export class OpsEngine {
     const rel = now - this.epoch;
 
     for (const event of this.live.poll(now)) this.onEvent(event, now);
+    // The source turned live mode off (OS-D5a): the newest day is the closest view.
+    if (this.mode === "live" && this.live.capabilities.live === "none") this.setReplay("24h");
     if (this.later.length > 0) {
       const due = this.later.filter((item) => item.t <= now);
       if (due.length > 0) {
@@ -524,7 +559,7 @@ export class OpsEngine {
     const row: FeedEntry = {
       id,
       t,
-      origin: this.originName.get(flight.origin) ?? flight.origin,
+      origin: this.originName.get(flight.origin) ?? (flight.origin === "" ? UNPLACED_NAME : flight.origin),
       routeIndex: flight.route,
       model: flight.model,
       failover: flight.failover,
@@ -687,6 +722,8 @@ export class OpsEngine {
   }
 
   private liveSnapshot(now: number): Snapshot {
+    // No figure until the source has delivered its first events (OS-N2a, OS-N9.5).
+    if (this.live.ready === false) return { ...EMPTY_SNAPSHOT, mode: "live", window: this.window, view: this.view, viewer: this.viewer, caps: this.live.capabilities, stale: this.live.stale === true, clock: now, playing: true, speed: this.speed };
     const horizon = now - LIVE_HISTORY_MS;
     if (this.starts.length > 0 && this.starts[0]! < horizon - 60_000) {
       this.starts = this.starts.filter((t) => t >= horizon);
@@ -732,7 +769,9 @@ export class OpsEngine {
       const d = this.done[i]!;
       if (d.t < now - PANEL_WINDOW_MS) break;
       models.set(d.model, (models.get(d.model) ?? 0) + 1);
-      origins.set(d.origin, (origins.get(d.origin) ?? 0) + 1);
+      // A request with no shown region counts toward the unplaced row (OS-D6).
+      const originKey = d.origin === "" ? UNPLACED_KEY : d.origin;
+      origins.set(originKey, (origins.get(originKey) ?? 0) + 1);
       if (d.route !== null) {
         routeCount.set(d.route, (routeCount.get(d.route) ?? 0) + 1);
         if (d.status === "error") routeErr.set(d.route, (routeErr.get(d.route) ?? 0) + 1);
@@ -763,7 +802,7 @@ export class OpsEngine {
       view: this.view,
       viewer: this.viewer,
       caps: this.live.capabilities,
-      stale: this.stale,
+      stale: this.live.stale === true,
       clock: now,
       playing: true,
       speed: this.speed,
@@ -804,7 +843,7 @@ export class OpsEngine {
       },
       models: topRows(models, (key) => key, 10),
       routes,
-      origins: topRows(origins, (key) => this.originName.get(key) ?? key, 10),
+      origins: topRows(origins, (key) => (key === UNPLACED_KEY ? UNPLACED_NAME : (this.originName.get(key) ?? key)), 10),
       sites: topRows(sites, (key) => this.siteName.get(key) ?? key, 6),
       groups: topRows(groups, (key) => key, 6),
       ticker: this.feedRows(),
@@ -1055,7 +1094,7 @@ export class OpsEngine {
     const placed = sum.origins.reduce((a, b) => a + b, 0);
     const unplaced = sum.total - placed;
     const originRows: RankRow[] = sum.origins.map((count, i) => ({ key: String(i), name: this.topology.origins[i]!.name, count, share: sum.total > 0 ? count / sum.total : 0 })).filter((row) => row.count >= 0.5);
-    if (unplaced >= 0.5 && unplaced / Math.max(1, sum.total) >= 0.001) originRows.push({ key: "~none", name: "未归入地区", count: unplaced, share: unplaced / sum.total });
+    if (unplaced >= 0.5 && unplaced / Math.max(1, sum.total) >= 0.001) originRows.push({ key: UNPLACED_KEY, name: UNPLACED_NAME, count: unplaced, share: unplaced / sum.total });
     originRows.sort((a, b) => b.count - a.count);
     originRows.length = Math.min(originRows.length, 10);
     const rank = (values: number[], names: (i: number) => string, limit: number): RankRow[] => {

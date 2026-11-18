@@ -45,7 +45,7 @@ Request Monitor 是给 LLM API 网关用的请求调度监控。它把网关的�
 
 | 网关 | 状态 |
 | --- | --- |
-| LynShen | 已支持（`gateway.kind = "lynshen"`）：历史回溯、身份识别；准实时接口已有，页面待接 |
+| LynShen | 已支持（`gateway.kind = "lynshen"`）：准实时、历史回溯、身份识别 |
 | sub2api | 计划中 |
 | new-api | 计划中 |
 
@@ -169,7 +169,7 @@ flowchart LR
 | --- | --- |
 | 页面（`web/`） | 可用。数据来自内置的合成样例（预览），或者下面的服务 |
 | 服务（`server/`） | 历史回溯和身份识别可用；30 天的汇总已在真实的 LynShen 网关上和网关自己的计数逐格对上 |
-| 准实时 | 服务已经提供（`/api/live`），页面还没接上，所以现在打开默认是 24 小时回溯 |
+| 准实时 | 可用：页面默认打开准实时，带最近 30 分钟的历史；数据服务暂时连不上时会提示并自动重试 |
 | sub2api、new-api | 适配器还没写 |
 
 ## 目录结构
@@ -191,7 +191,7 @@ docs/                   规格：spec-screen.md（页面）、spec-service.md（
 
 ```bash
 cd server && go vet ./... && go test ./...
-cd web && bun run lint && bun run build
+cd web && bun run lint && bun run test && bun run build
 ```
 
 适配器的测试默认跑在 SQLite 上；设 `REQUEST_MONITOR_TEST_PG_DSN` 指向一个可以随便写的空 PostgreSQL 库，就会再在 PostgreSQL 上跑一遍。改行为之前先改规格：[`docs/spec-screen.md`](docs/spec-screen.md)、[`docs/spec-service.md`](docs/spec-service.md)。
