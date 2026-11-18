@@ -1,8 +1,9 @@
 // Inlines the script and stylesheet of dist-single/index.html into the HTML file itself, so the
 // preview opens from disk with no server.
-// Usage: bun scripts/inline.ts [--config <config.json>] [--out <file.html>]
+// Usage: bun scripts/inline.ts [--config <config.json>] [--sample <sample.json>] [--out <file.html>]
 // The config file follows ScreenConfig (src/core/config.ts). A logo given as a file path, relative
-// to the config file, is embedded as a data URI.
+// to the config file, is embedded as a data URI. --sample replaces the built-in synthetic sample
+// with the given file (the PreviewData shape of src/preview/sim.ts) in this one output file.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join } from "node:path";
 
@@ -13,6 +14,7 @@ const option = (name: string) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const configPath = option("--config");
+const samplePath = option("--sample");
 const out = option("--out") ?? join(dist, "ops-screen.html");
 
 let html = readFileSync(join(dist, "index.html"), "utf8");
@@ -40,5 +42,11 @@ if (configPath) {
   if (!html.includes("</head>")) throw new Error("no </head> to put the config before");
   html = html.replace("</head>", `${tag}</head>`);
 }
+if (samplePath) {
+  const sample = JSON.stringify(JSON.parse(readFileSync(samplePath, "utf8")));
+  const tag = `<script>window.__OPS_SAMPLE__=${safe(sample).replace(/</g, "\\u003c")};</script>`;
+  if (!html.includes("</head>")) throw new Error("no </head> to put the sample before");
+  html = html.replace("</head>", `${tag}</head>`);
+}
 writeFileSync(out, html);
-console.log(`wrote ${out} (${(html.length / 1024).toFixed(0)} KiB)${configPath ? ` with ${configPath}` : ""}`);
+console.log(`wrote ${out} (${(html.length / 1024).toFixed(0)} KiB)${configPath ? ` with ${configPath}` : ""}${samplePath ? ` and sample ${samplePath}` : ""}`);

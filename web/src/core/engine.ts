@@ -41,6 +41,46 @@ interface FeedEntry extends Omit<TickerRow, "route" | "site" | "restricted"> {
   routeIndex: number | null;
 }
 
+/** A finished request in a node's detail view. */
+export interface RecentRow {
+  t: number;
+  origin: string;
+  route: string;
+  model: string;
+  status: FlowStatus;
+  durationMs: number;
+  errorCode?: string;
+}
+
+/** What the screen knows about one place on the map, for the range the screen is showing. */
+export interface NodeDetail {
+  id: string;
+  kind: "gateway" | "upstream" | "origin";
+  name: string;
+  region: string;
+  note?: string;
+  /** The range the figures cover, in the page's words. */
+  scope: string;
+  requests: number;
+  /** Share of all requests of the range. */
+  share: number;
+  /** Null when the range holds no outcome for this node (a user region in replay). */
+  okRate: number | null;
+  ttfbP50: number | null;
+  /** Requests in flight now; null in replay. */
+  inflight: number | null;
+  models: RankRow[];
+  routes: RouteRow[];
+  origins: RankRow[];
+  sites: RankRow[];
+  /** Newest first; empty in replay. */
+  recent: RecentRow[];
+  /** Requests over time: one value per minute of the last 30 (live), or per bucket (replay). */
+  trend: number[];
+  /** True when the breakdown by model and by Channel does not exist for this node in this range. */
+  noBreakdown: boolean;
+}
+
 export interface Snapshot {
   ready: boolean;
   mode: "live" | "replay";
@@ -95,6 +135,8 @@ interface Done {
   origin: string;
   status: FlowStatus;
   ttfbMs: number | null;
+  durationMs: number;
+  errorCode?: string;
 }
 
 const LIVE_HISTORY_MS = 30 * 60_000;
@@ -230,6 +272,15 @@ export class OpsEngine {
 
   private hidden(route: number): boolean {
     return this.viewer === "user" && this.topology.routes[route]!.restricted;
+  }
+
+  /**
+   * The upstream site of a route as the current viewer may know it: null for a restricted route
+   * seen by a non-admin, so no dispatch arc is drawn for it.
+   */
+  private siteOf(route: number): string | null {
+    const info = this.topology.routes[route];
+    return !info || this.hidden(route) ? null : info.upstream;
   }
 
   /**
@@ -466,11 +517,11 @@ export class OpsEngine {
         }
       }
       flight.route = event.route;
-      flight.site = route.upstream;
+      flight.site = this.siteOf(event.route);
       this.routeLastAt.set(event.route, event.t);
       this.pushTicker(event.id, flight, event.t, { status: "pending", ttfbMs: null, durationMs: null });
-      if (route.upstream) {
-        const site = route.upstream;
+      if (flight.site) {
+        const site = flight.site;
         if (holds) {
           this.renderer.hold(gw, `up:${site}`, "out", 1);
           this.renderer.inflight(`up:${site}`, 1);
@@ -500,7 +551,7 @@ export class OpsEngine {
 
     // end
     this.flights.delete(event.id);
-    this.done.push({ t: event.t, model: flight.model, route: flight.route, origin: flight.origin, status: event.status, ttfbMs: event.ttfbMs });
+    this.done.push({ t: event.t, model: flight.model, route: flight.route, origin: flight.origin, status: event.status, ttfbMs: event.ttfbMs, durationMs: event.durationMs, errorCode: event.errorCode });
     if (event.t > this.epoch) {
       this.extraTotal++;
       if (event.status === "error") this.extraErrors++;
@@ -545,7 +596,7 @@ export class OpsEngine {
       const d = this.done[i]!;
       if (d.t < from) break;
       originCount.set(d.origin, (originCount.get(d.origin) ?? 0) + 1);
-      const site = d.route !== null ? this.topology.routes[d.route]!.upstream : null;
+      const site = d.route !== null ? this.siteOf(d.route) : null;
       if (!site) continue;
       siteCount.set(site, (siteCount.get(site) ?? 0) + 1);
       if (d.status === "error") siteErr.set(site, (siteErr.get(site) ?? 0) + 1);
@@ -624,7 +675,8 @@ export class OpsEngine {
         }
         const info = this.topology.routes[d.route]!;
         groups.set(info.group, (groups.get(info.group) ?? 0) + 1);
-        if (info.upstream) sites.set(info.upstream, (sites.get(info.upstream) ?? 0) + 1);
+        const at = this.siteOf(d.route);
+        if (at) sites.set(at, (sites.get(at) ?? 0) + 1);
       }
       if (d.t >= now - KPI_WINDOW_MS) {
         if (d.status === "error") err++;
@@ -697,6 +749,149 @@ export class OpsEngine {
     return out;
   }
 
+  // ------------------------------------------------------------------ node detail
+
+  /** Figures of one map node for the range on screen, or null for an unknown id. */
+  detail(id: string, now: number): NodeDetail | null {
+    const gw = this.topology.gateway;
+    const kind = id === gw.id ? "gateway" : id.startsWith("up:") ? "upstream" : id.startsWith("o:") ? "origin" : null;
+    if (!kind) return null;
+    const key = kind === "gateway" ? id : id.slice(id.indexOf(":") + 1);
+    const upstream = kind === "upstream" ? this.topology.upstreams.find((site) => site.id === key) : undefined;
+    const place = kind === "gateway" ? gw : kind === "upstream" ? upstream : this.topology.origins.find((site) => site.id === key);
+    if (!place) return null;
+    const colo = kind === "upstream" && Math.hypot(place.lon - gw.lon, place.lat - gw.lat) < 1.5;
+    const note = colo ? "与网关在同一机房" : upstream?.anycast ? "任播地址，实际服务器位置未知" : undefined;
+    const base = { id, kind, name: place.name, region: place.region, note } as const;
+    const names = { origin: (k: string) => this.originName.get(k) ?? k, site: (k: string) => this.siteName.get(k) ?? k };
+
+    if (this.mode === "replay" && this.replay) {
+      const data = this.replay;
+      const [from, to] = this.replaySpan(data);
+      const sum = this.sumBuckets(data, from, to);
+      const scope = this.wholeWindow ? "整个时间窗" : "当前时段";
+      // At most 120 points: buckets are merged in equal groups.
+      const group = Math.ceil(data.buckets.length / 120);
+      const series = (value: (i: number) => number) => {
+        const out: number[] = [];
+        for (let i = 0; i < data.buckets.length; i += group) {
+          let v = 0;
+          for (let j = i; j < Math.min(data.buckets.length, i + group); j++) v += value(j);
+          out.push(v);
+        }
+        return out;
+      };
+      if (kind === "origin") {
+        const index = this.topology.origins.findIndex((site) => site.id === key);
+        const requests = sum.origins[index] ?? 0;
+        return { ...base, scope, requests, share: sum.total > 0 ? requests / sum.total : 0, okRate: null, ttfbP50: null, inflight: null, models: [], routes: [], origins: [], sites: [], recent: [], trend: series((i) => data.buckets[i]!.origins[index] ?? 0), noBreakdown: true };
+      }
+      const mine = (route: number) => route >= 0 && (kind === "gateway" || this.siteOf(route) === key);
+      const count = new Map<number, number>();
+      const err = new Map<number, number>();
+      let requests = kind === "gateway" ? sum.total : 0;
+      let errors = kind === "gateway" ? sum.errors : 0;
+      for (const [route, value] of sum.routeCount) {
+        if (!mine(route)) continue;
+        count.set(route, value);
+        err.set(route, sum.routeErr.get(route) ?? 0);
+        if (kind !== "gateway") {
+          requests += value;
+          errors += sum.routeErr.get(route) ?? 0;
+        }
+      }
+      const siteCount = new Map<string, number>();
+      for (const [route, value] of sum.routeCount) {
+        const at = route >= 0 ? this.siteOf(route) : null;
+        if (at) siteCount.set(at, (siteCount.get(at) ?? 0) + value);
+      }
+      const originCount = new Map<string, number>();
+      sum.origins.forEach((value, i) => originCount.set(this.topology.origins[i]!.id, value));
+      return {
+        ...base,
+        scope,
+        requests,
+        share: sum.total > 0 ? requests / sum.total : 0,
+        okRate: requests > 0 ? 1 - errors / requests : null,
+        ttfbP50: kind === "gateway" && sum.ttfbP50 > 0 ? sum.ttfbP50 : null,
+        inflight: null,
+        models: kind === "gateway" ? sum.models.map((value, i) => ({ key: String(i), name: data.models[i]!, count: value, share: sum.total > 0 ? value / sum.total : 0 })).filter((row) => row.count >= 0.5).sort((a, b) => b.count - a.count).slice(0, 5) : [],
+        routes: this.routeRows(count, err, null).slice(0, 5),
+        origins: kind === "gateway" ? topRows(originCount, names.origin, 5) : [],
+        sites: kind === "gateway" ? topRows(siteCount, names.site, 5) : [],
+        recent: [],
+        trend: series((i) => {
+          const bucket = data.buckets[i]!;
+          if (kind === "gateway") return bucket.total;
+          let v = 0;
+          for (let j = 0; j < bucket.routes.length; j += 3) if (mine(bucket.routes[j]!)) v += bucket.routes[j + 1]!;
+          return v;
+        }),
+        noBreakdown: kind !== "gateway",
+      };
+    }
+
+    const mine = (origin: string, route: number | null) => kind === "gateway" || (kind === "origin" ? origin === key : route !== null && this.siteOf(route) === key);
+    const models = new Map<string, number>();
+    const origins = new Map<string, number>();
+    const sites = new Map<string, number>();
+    const count = new Map<number, number>();
+    const err = new Map<number, number>();
+    const ttfb = new Map<number, number[]>();
+    const samples: number[] = [];
+    const recent: RecentRow[] = [];
+    const trend = new Array<number>(30).fill(0);
+    let requests = 0;
+    let errors = 0;
+    let all = 0;
+    for (let i = this.done.length - 1; i >= 0; i--) {
+      const d = this.done[i]!;
+      const age = now - d.t;
+      if (age >= LIVE_HISTORY_MS) break;
+      const match = mine(d.origin, d.route);
+      if (match && age >= 0) trend[29 - Math.min(29, Math.floor(age / 60_000))]!++;
+      if (age >= PANEL_WINDOW_MS) continue;
+      all++;
+      if (!match) continue;
+      requests++;
+      if (d.status === "error") errors++;
+      if (d.ttfbMs !== null) samples.push(d.ttfbMs);
+      models.set(d.model, (models.get(d.model) ?? 0) + 1);
+      origins.set(d.origin, (origins.get(d.origin) ?? 0) + 1);
+      if (d.route !== null) {
+        count.set(d.route, (count.get(d.route) ?? 0) + 1);
+        if (d.status === "error") err.set(d.route, (err.get(d.route) ?? 0) + 1);
+        if (d.ttfbMs !== null) {
+          const list = ttfb.get(d.route);
+          if (list) list.push(d.ttfbMs);
+          else ttfb.set(d.route, [d.ttfbMs]);
+        }
+        const at = this.siteOf(d.route);
+        if (at) sites.set(at, (sites.get(at) ?? 0) + 1);
+      }
+      if (recent.length < 6) recent.push({ t: d.t, origin: names.origin(d.origin), route: d.route !== null ? this.labelOf(d.route) : "网关拒绝", model: d.model, status: d.status, durationMs: d.durationMs, errorCode: d.errorCode });
+    }
+    let inflight = 0;
+    for (const flight of this.flights.values()) if (kind === "gateway" || (kind === "origin" ? flight.origin === key : flight.site === key)) inflight++;
+    samples.sort((a, b) => a - b);
+    return {
+      ...base,
+      scope: "近 15 分钟",
+      requests,
+      share: all > 0 ? requests / all : 0,
+      okRate: requests > 0 ? 1 - errors / requests : null,
+      ttfbP50: samples.length > 0 ? percentile(samples, 0.5) : null,
+      inflight,
+      models: topRows(models, (k) => k, 5),
+      routes: this.routeRows(count, err, ttfb).slice(0, 5),
+      origins: kind === "origin" ? [] : topRows(origins, names.origin, 5),
+      sites: kind === "upstream" ? [] : topRows(sites, names.site, 5),
+      recent,
+      trend,
+      noBreakdown: false,
+    };
+  }
+
   // ------------------------------------------------------------------ replay
 
   private replayIndex(data: ReplayData): number {
@@ -751,7 +946,7 @@ export class OpsEngine {
     const siteCount = new Map<string, number>();
     const siteErr = new Map<string, number>();
     for (const [route, count] of sum.routeCount) {
-      const site = route >= 0 ? this.topology.routes[route]?.upstream : null;
+      const site = route >= 0 ? this.siteOf(route) : null;
       if (!site) continue;
       siteCount.set(site, (siteCount.get(site) ?? 0) + count);
       siteErr.set(site, (siteErr.get(site) ?? 0) + (sum.routeErr.get(route) ?? 0));
@@ -799,7 +994,8 @@ export class OpsEngine {
       const info = route >= 0 ? this.topology.routes[route] : undefined;
       if (!info) continue;
       groupCount.set(info.group, (groupCount.get(info.group) ?? 0) + count);
-      if (info.upstream) siteCount.set(info.upstream, (siteCount.get(info.upstream) ?? 0) + count);
+      const at = this.siteOf(route);
+      if (at) siteCount.set(at, (siteCount.get(at) ?? 0) + count);
     }
     const sparkFrom = Math.max(0, upTo - 59);
     const window = data.buckets.slice(sparkFrom, upTo + 1);

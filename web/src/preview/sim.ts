@@ -400,7 +400,19 @@ export class PreviewLive implements LiveSource {
   }
 }
 
-/** The sample data, with its time axis ending at `now`. */
+declare global {
+  interface Window {
+    /** A deployment's own sample, written into the single-file build by `scripts/inline.ts --sample <file>`. */
+    __OPS_SAMPLE__?: unknown;
+  }
+}
+
+/**
+ * The sample data. By default it is synthetic, with its time axis ending at `now`. A private
+ * single-file build may carry its own sample instead; that file never belongs in the repository.
+ */
 export async function loadPreviewData(now: number): Promise<PreviewData> {
+  const own = window.__OPS_SAMPLE__;
+  if (own && typeof own === "object" && Array.isArray((own as PreviewData).routes)) return own as PreviewData;
   return (await import("./sample")).makeSample(now);
 }

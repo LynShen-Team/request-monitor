@@ -133,6 +133,17 @@ body,
   background: var(--panel-solid);
   border: 1px solid var(--line);
 }
+.lb-major .lb-head {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.lb-major .lb-head:hover,
+.lb-major.is-selected .lb-head {
+  border-color: var(--line-strong);
+}
+.lb-origin.is-focus {
+  color: var(--text);
+}
 .lb-head b {
   font-size: calc(12.5 * var(--px));
   font-weight: 600;
@@ -809,6 +820,121 @@ body,
 .tip b {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+/* ------------------------------------------------------------ map node detail */
+.node-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: calc(7 * var(--px)) calc(10 * var(--px));
+  border-radius: calc(8 * var(--px));
+  border: 1px solid var(--line);
+  background: var(--panel-solid);
+  font-size: calc(11.5 * var(--px));
+  line-height: 1.55;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform;
+  z-index: 4;
+}
+.node-tip b {
+  font-size: calc(12.5 * var(--px));
+  font-weight: 600;
+}
+.inspect-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: calc(8 * var(--px));
+  padding: calc(12 * var(--px)) calc(12 * var(--px)) calc(10 * var(--px)) calc(16 * var(--px));
+}
+.inspect-kind {
+  font-size: calc(11.5 * var(--px));
+  color: var(--text-3);
+}
+.inspect-head h3 {
+  margin: calc(1 * var(--px)) 0 0;
+  font-size: calc(16 * var(--px));
+  font-weight: 600;
+}
+.inspect-head h3 span {
+  margin-left: calc(4 * var(--px));
+  font-size: calc(11.5 * var(--px));
+  font-weight: 400;
+  color: var(--text-2);
+}
+.inspect-close {
+  flex: none;
+  width: calc(26 * var(--px));
+  height: calc(26 * var(--px));
+  display: grid !important;
+  place-items: center;
+  border-radius: calc(6 * var(--px));
+  color: var(--text-2) !important;
+}
+.inspect-close:hover {
+  color: var(--text) !important;
+  background: var(--fill) !important;
+}
+.inspect-close svg {
+  width: calc(15 * var(--px));
+  height: calc(15 * var(--px));
+}
+.inspect-note {
+  padding: 0 calc(16 * var(--px)) calc(8 * var(--px));
+  font-size: calc(11.5 * var(--px));
+  color: var(--text-2);
+}
+.inspect-body .inspect-note {
+  padding: calc(8 * var(--px)) 0 0;
+}
+.inspect .stats {
+  border-bottom: 1px solid var(--line);
+}
+.inspect .stat {
+  padding: calc(8 * var(--px)) calc(12 * var(--px)) calc(10 * var(--px));
+}
+.inspect .stat:first-child {
+  padding-left: calc(16 * var(--px));
+}
+.inspect .stat-value {
+  font-size: calc(18 * var(--px));
+}
+.inspect-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  /* The list fades out at the bottom edge: more follows on scroll. */
+  mask-image: linear-gradient(180deg, #000 calc(100% - 28 * var(--px)), transparent 100%);
+  padding: 0 calc(16 * var(--px)) calc(24 * var(--px));
+}
+.inspect-trend {
+  display: block;
+  width: 100%;
+  height: calc(34 * var(--px));
+  margin-top: calc(4 * var(--px));
+}
+.inspect-recent {
+  display: grid;
+  grid-template-columns: calc(8 * var(--px)) minmax(0, 1fr) auto;
+  column-gap: calc(8 * var(--px));
+  align-items: center;
+  padding: calc(5 * var(--px)) 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: calc(12 * var(--px));
+  white-space: nowrap;
+}
+.inspect-recent > div {
+  min-width: 0;
+}
+.inspect-recent > div div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inspect-recent > div div:last-child {
+  font-size: calc(11 * var(--px));
+  color: var(--text-3);
 }
 .boot {
   position: absolute;

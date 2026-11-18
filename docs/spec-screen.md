@@ -12,7 +12,9 @@ disk.
 
 OS-P2. The sample data of the preview is synthetic. It is generated in the browser from a fixed
 seed by `web/src/preview/sample.ts`, and its time axis ends at the current hour. The repository
-MUST NOT contain data, names, addresses, or locations of a real gateway.
+MUST NOT contain data, names, addresses, or locations of a real gateway. `scripts/inline.ts
+--sample <file>` writes another sample into one single-file build; such a file stays outside the
+repository.
 
 ## 1. Data contract
 
@@ -47,7 +49,9 @@ set by the data source. In the sample, the routes of the Groups `合作方` and 
    one Group are one row whose count, success rate, and TTFB median cover them together. The row,
    a feed row, and the text at an upstream site show no Channel name and no upstream site for them.
 3. A route that is not restricted is identical in both views.
-4. Totals, the model ranking, the origin ranking, and the arcs are identical in both views.
+4. Totals, the model ranking, and the origin ranking are identical in both views. In the restricted
+   view a request on a restricted route draws no gateway → upstream arc and counts toward no
+   upstream site, because the page does not know its site.
 5. The header shows the role as a label (`管理员`, `用户`, `访客`) that is not a control.
 
 OS-D3b. The preview has no gateway and sends no request, so it cannot identify anyone:
@@ -110,6 +114,35 @@ OS-M7. In replay the scene shows one aggregate: for each origin an arc to the ga
 upstream site an arc from the gateway, with width proportional to the square root of the volume
 relative to the busiest bucket of the window. The error share of a site blends its arc toward the
 error colour. Comets are emitted on each arc at a rate that grows with its volume, with no floor.
+
+## 2a. Inspecting a place
+
+OS-I1. Every node is a pointer target. The pointer is on a node when it is within 13 design
+pixels of an origin, or within 20 design pixels of the gateway or an upstream site; the nearest
+node wins. The labels of the gateway and of upstream sites are targets too, which is the only way
+to reach a co-located upstream site (OS-M3).
+
+OS-I2. Hover. While the pointer is on a node, a tooltip beside the node shows its name, its kind
+(`网关`, `上游所在地`, `来源地区`), the request count and success rate of the range on screen, and
+the requests in flight. The node gets a ring, and an origin shows its label.
+
+OS-I3. Click. A press that moves less than 4 pixels selects the node under it and opens its detail
+card, which takes the place of the lower card of the right column, so the card never covers the
+map. A click on the selected node, the Escape key, or the card's close button closes it. A press
+that moves 4 pixels or more turns the scene and selects nothing.
+
+OS-I4. In live mode the detail card shows, for the finished requests of the last 15 minutes that
+involve the node: their count, their share of all requests, the success rate, and the TTFB median;
+the requests in flight now; the finished requests per minute of the last 30 minutes; the 5 largest
+models; the 5 largest routes (OS-D3a applies); for the gateway and an upstream site the 5 largest
+origins; for the gateway and an origin the 5 largest upstream sites; and the 6 newest finished
+requests with time, route, model, and outcome.
+
+OS-I5. In replay the card shows the bucket set of OS-R4. The gateway has all figures of OS-I4
+except requests in flight and newest requests. An upstream site has its count, share, success
+rate, and routes. An origin has its count and share only. The card states which breakdown does not
+exist; it MUST NOT estimate one. The data source holds no cross product of origin, route, and
+model for past buckets (`docs/spec-service.md` OS-B4).
 
 ## 3. Live metrics
 

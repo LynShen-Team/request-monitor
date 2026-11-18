@@ -217,6 +217,12 @@ export class Scene3D implements FlowView {
   private comets: Comet[] = [];
   private pulses: Pulse[] = [];
   private readonly pulsePool: Array<THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>> = [];
+  /** Rings that mark the node under the pointer and the selected node. */
+  private readonly focusRings: Array<THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>> = [];
+  private hoverId: string | null = null;
+  private selectedId: string | null = null;
+  /** Called when the pointer enters or leaves a site label, and when a site label is clicked. */
+  onLabel: ((id: string, event: "enter" | "leave" | "click") => void) | null = null;
 
   private readonly dotMap: THREE.CanvasTexture;
   private readonly ringMap: THREE.CanvasTexture;
@@ -434,6 +440,14 @@ export class Scene3D implements FlowView {
       this.pulsePool.push(mesh);
     }
 
+    for (let i = 0; i < 2; i++) {
+      const mesh = new THREE.Mesh(this.planeGeometry, new THREE.MeshBasicMaterial({ map: this.ringMap, transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
+      mesh.visible = false;
+      mesh.renderOrder = 10;
+      this.scene.add(mesh);
+      this.focusRings.push(mesh);
+    }
+
     this.blended.push(this.air.material, arcMesh.material, cometMesh.material, heads.material, ...this.pulsePool.map((mesh) => mesh.material));
     this.setTheme(theme);
   }
@@ -588,6 +602,38 @@ export class Scene3D implements FlowView {
 
   zoom(delta: number) {
     this.zoomFactor = Math.max(0.6, Math.min(1.7, this.zoomFactor * Math.exp(delta * 0.0012)));
+  }
+
+  /** The node under a point of the canvas (CSS pixels), or null. The nearest node within reach wins. */
+  pick(x: number, y: number): string | null {
+    let best: string | null = null;
+    let bestDistance = Infinity;
+    for (const node of this.nodes.values()) {
+      if (node.colo || node.facing < 0.3) continue;
+      // The reach is larger than the dot: a small target must not need a precise pointer.
+      const reach = (node.def.kind === "origin" ? 13 : 20) * Math.max(1, this.ui);
+      const distance = Math.hypot(node.sx - x, node.sy - y);
+      if (distance <= reach && distance < bestDistance) {
+        best = node.def.id;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  /** Where a node is on the canvas now (CSS pixels), and whether it faces the viewer. */
+  screenOf(id: string): { x: number; y: number; visible: boolean } | null {
+    const node = this.nodes.get(id);
+    return node ? { x: node.sx, y: node.sy, visible: node.facing > 0.05 } : null;
+  }
+
+  /** Marks the node under the pointer and the selected node; both keep their label visible. */
+  setFocus(hoverId: string | null, selectedId: string | null) {
+    this.hoverId = hoverId;
+    this.selectedId = selectedId;
+    for (const node of this.nodes.values()) {
+      if (node.def.kind !== "origin" && node.label) node.label.el.classList.toggle("is-selected", node.def.id === selectedId);
+    }
   }
 
   setAggregateMode(on: boolean) {
@@ -822,6 +868,9 @@ export class Scene3D implements FlowView {
       sub.className = "lb-sub";
       sub.textContent = node.sub;
       head.append(mark, title, sub);
+      head.addEventListener("pointerenter", () => this.onLabel?.(node.def.id, "enter"));
+      head.addEventListener("pointerleave", () => this.onLabel?.(node.def.id, "leave"));
+      head.addEventListener("click", () => this.onLabel?.(node.def.id, "click"));
       el.append(head);
       label.title = title;
       label.sub = sub;
@@ -928,13 +977,14 @@ export class Scene3D implements FlowView {
     }
 
     const origins = [...this.nodes.values()].filter((n) => n.def.kind === "origin");
-    origins.sort((a, b) => b.activity + b.value * 1.4 - (a.activity + a.value * 1.4));
+    const focused = (node: SNode) => node.def.id === this.hoverId || node.def.id === this.selectedId;
+    origins.sort((a, b) => Number(focused(b)) - Number(focused(a)) || b.activity + b.value * 1.4 - (a.activity + a.value * 1.4));
     let shown = 0;
     for (const node of origins) {
       const label = node.label!;
-      const strength = Math.min(1, node.activity * 1.3 + node.value * 1.5) * Math.min(1, node.facing * 4);
+      const strength = (focused(node) ? 1 : Math.min(1, node.activity * 1.3 + node.value * 1.5)) * Math.min(1, node.facing * 4);
       let visible = false;
-      if (strength > 0.14 && shown < 14) {
+      if (strength > 0.14 && (shown < 14 || focused(node))) {
         if (label.dirty) {
           label.w = label.el.offsetWidth;
           label.h = label.el.offsetHeight;
@@ -946,11 +996,13 @@ export class Scene3D implements FlowView {
           [node.sx - label.w / 2, node.sy - 10 * u - label.h],
           [node.sx - label.w / 2, node.sy + 10 * u],
         ];
-        const spot = options.find((o) => o[0] >= this.safe.x - 6 * u && o[0] + label.w <= this.safe.x + this.safe.w + 6 * u && free(o[0], o[1], label.w, label.h));
+        // A focused label takes its first place even where another label is.
+        const spot = options.find((o) => o[0] >= this.safe.x - 6 * u && o[0] + label.w <= this.safe.x + this.safe.w + 6 * u && free(o[0], o[1], label.w, label.h)) ?? (focused(node) ? options[1] : undefined);
         if (spot) {
           placed.push([spot[0], spot[1], label.w, label.h]);
           label.el.style.transform = `translate3d(${spot[0].toFixed(1)}px,${spot[1].toFixed(1)}px,0)`;
           label.el.style.opacity = (0.35 + 0.65 * strength).toFixed(3);
+          label.el.classList.toggle("is-focus", focused(node));
           visible = true;
           shown++;
         }
@@ -1039,6 +1091,23 @@ export class Scene3D implements FlowView {
         node.ring.material.opacity = node.facing * (kind === "gateway" ? 0.7 : 0.9);
       }
     }
+
+    // Focus rings: a neutral ring around the hovered node and a stronger one around the selected.
+    [this.hoverId === this.selectedId ? null : this.hoverId, this.selectedId].forEach((id, i) => {
+      const mesh = this.focusRings[i]!;
+      const node = id ? this.nodes.get(id) : undefined;
+      if (!node || node.facing < 0.05) {
+        mesh.visible = false;
+        return;
+      }
+      const size = node.def.kind === "origin" ? 0.03 + 0.012 * Math.sqrt(node.value) : node.def.kind === "gateway" ? 0.082 : node.colo ? 0.118 : 0.064 + 0.018 * Math.sqrt(node.value);
+      mesh.visible = true;
+      mesh.position.copy(node.pos).addScaledVector(node.up, 0.002);
+      mesh.quaternion.setFromUnitVectors(FORWARD, node.up);
+      mesh.scale.setScalar(size * zf);
+      mesh.material.color.setHex(this.theme.light ? 0x171717 : 0xffffff);
+      mesh.material.opacity = (i === 1 ? 0.95 : 0.6) * node.facing;
+    });
 
     // Tethers of displaced upstream sites
     const tethered = (this.tethers.userData.nodes as SNode[] | undefined) ?? [];

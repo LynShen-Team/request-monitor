@@ -9,6 +9,7 @@ import type { ViewMode } from "./core/view";
 import { PreviewConfig } from "./preview/config";
 import { PreviewIdentity } from "./preview/identity";
 import { PreviewLive, PreviewReplay, loadPreviewData } from "./preview/sim";
+import { NodePanel, NodeTip } from "./ui/inspect";
 import { Scene3D } from "./scene/scene";
 import { useAppearance } from "./ui/appearance";
 import { FeedPanel, Legend, RankPanel, RoutePanel, SummaryPanel, ThroughputPanel } from "./ui/panels";
@@ -54,6 +55,9 @@ export default function App() {
   // Null until the identity source has answered; the screen shows nothing role-dependent before.
   const [role, setRole] = useState<Role | null>(null);
   const [config, setConfig] = useState<ScreenConfig>(DEFAULT_CONFIG);
+  // The map node under the pointer and the node whose detail card is open.
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const { theme, mode, hours, cycleMode } = useAppearance(params, manual ? Number(params.get("t")) || Date.now() : null);
   const snap = useSyncExternalStore(engine?.subscribe ?? noSubscribe, engine ? engine.getSnapshot : () => EMPTY_SNAPSHOT);
   const view = engine ? snap.view : initialView;
@@ -62,6 +66,11 @@ export default function App() {
     const root = rootRef.current!;
     const scene = new Scene3D(canvasRef.current!, overlayRef.current!, theme);
     sceneRef.current = scene;
+    scene.onLabel = (id, event) => {
+      if (event === "enter") setHoverId(id);
+      else if (event === "leave") setHoverId((current) => (current === id ? null : current));
+      else setSelectedId((current) => (current === id ? null : id));
+    };
     let disposed = false;
     let frame = 0;
     const layout = () => {
@@ -125,6 +134,10 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    sceneRef.current?.setFocus(hoverId, selectedId);
+  }, [hoverId, selectedId]);
+
+  useEffect(() => {
     // A trackpad pinch reaches the page as a ctrl+wheel event (Chrome, Firefox) or as gesture
     // events (Safari), and by default zooms the whole page. Here it zooms the scene only, and
     // the panels keep their size. A plain scroll zooms when the pointer is over the scene.
@@ -180,7 +193,8 @@ export default function App() {
     if (!engine) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === " ") {
+      if (event.key === "Escape") setSelectedId(null);
+      else if (event.key === " ") {
         event.preventDefault();
         engine.togglePlay();
       } else if (event.key === "1") engine.setLive();
@@ -197,7 +211,10 @@ export default function App() {
   const modeLabel = mode === "auto" ? "自动" : mode === "day" ? "白天" : "夜间";
   const clockText = (hour: number) => `${Math.floor(hour)}:${String(Math.round((hour % 1) * 60)).padStart(2, "0")}`;
   const modeTitle = mode === "auto" ? `自动：${clockText(hours[0])} 到 ${clockText(hours[1])} 为白天，其余为夜间。点击切换` : `固定为${modeLabel}。点击切换`;
-  const drag = useRef<{ x: number; y: number } | null>(null);
+  // A press that moves less than 4 px is a click on the map; a longer one turns the scene.
+  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const hoverDetail = useMemo(() => (engine && hoverId && hoverId !== selectedId ? engine.detail(hoverId, snap.clock) : null), [engine, hoverId, selectedId, snap]);
+  const selectedDetail = useMemo(() => (engine && selectedId ? engine.detail(selectedId, snap.clock) : null), [engine, selectedId, snap]);
   const live = snap.mode === "live";
   const scope = live ? "近 15 分钟" : snap.wholeWindow ? "整个时间窗" : "当前时段";
 
@@ -206,18 +223,36 @@ export default function App() {
       <canvas
         ref={canvasRef}
         className="scene"
+        style={hoverId ? { cursor: "pointer" } : undefined}
         onPointerDown={(event) => {
-          drag.current = { x: event.clientX, y: event.clientY };
+          drag.current = { x: event.clientX, y: event.clientY, moved: false };
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
-          if (!drag.current) return;
-          sceneRef.current?.orbit(event.clientX - drag.current.x, event.clientY - drag.current.y);
-          drag.current = { x: event.clientX, y: event.clientY };
+          const rect = event.currentTarget.getBoundingClientRect();
+          const press = drag.current;
+          if (!press) {
+            setHoverId(sceneRef.current?.pick(event.clientX - rect.left, event.clientY - rect.top) ?? null);
+            return;
+          }
+          const dx = event.clientX - press.x;
+          const dy = event.clientY - press.y;
+          if (!press.moved && Math.hypot(dx, dy) < 4) return;
+          press.moved = true;
+          setHoverId(null);
+          sceneRef.current?.orbit(dx, dy);
+          press.x = event.clientX;
+          press.y = event.clientY;
         }}
-        onPointerUp={() => {
+        onPointerUp={(event) => {
+          const press = drag.current;
           drag.current = null;
+          if (!press || press.moved) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          const id = sceneRef.current?.pick(event.clientX - rect.left, event.clientY - rect.top) ?? null;
+          setSelectedId((current) => (id === current ? null : id));
         }}
+        onPointerLeave={() => setHoverId(null)}
       />
       <div className="scene-shade" />
       <div ref={overlayRef} className="scene-overlay" />
@@ -282,10 +317,12 @@ export default function App() {
 
       <aside className="col is-right">
         <RoutePanel snap={snap} />
-        {live ? <FeedPanel snap={snap} /> : <SummaryPanel snap={snap} />}
+        {/* The detail of a selected map node takes the place of the lower card, so it never covers the map. */}
+        {selectedDetail ? <NodePanel detail={selectedDetail} onClose={() => setSelectedId(null)} /> : live ? <FeedPanel snap={snap} /> : <SummaryPanel snap={snap} />}
       </aside>
 
       <div ref={centerRef} className="center" />
+      {sceneRef.current && hoverDetail ? <NodeTip scene={sceneRef.current} detail={hoverDetail} /> : null}
       <Legend live={live} attribution={config.attribution} />
       <Timeline snap={snap} engine={engine} />
       {engine ? null : <div className="boot">正在加载</div>}

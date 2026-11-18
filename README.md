@@ -24,7 +24,9 @@ bun run build:single   # 生成 dist-single/ops-screen.html，双击即可打开
 
 网址参数：`?view=2d`、`?range=24h|7d|30d`、`?theme=auto|day|night`、`?day=7-18`（白天的小时范围）、`?as=user|guest`（模拟普通用户或访客）、`?rate=10`（样例流量放大十倍）。
 
-快捷键：1 实时，2 / 3 / 4 回溯，D 切换地球 / 平面，L 切换自动 / 白天 / 夜间，空格 播放 / 暂停。
+快捷键：1 实时，2 / 3 / 4 回溯，D 切换地球 / 平面，L 切换自动 / 白天 / 夜间，空格 播放 / 暂停，Esc 关闭详情。
+
+地图上的每个地点（来源地区、网关、上游所在地）都可以悬停看摘要、点击看详情：请求数、成功率、模型和渠道分布、最近完成的请求。拖动转动地球，滚轮或触控板捏合缩放。
 
 给预览加上自己的标题和标：写一个 `config.json`（字段见 `web/src/core/config.ts`），然后
 
@@ -44,7 +46,7 @@ bun run build:single -- --config /path/to/config.json
 
 - `web/src/core/`：数据约定（`model.ts`、`identity.ts`、`config.ts`）、引擎、地理工具。
 - `web/src/scene/`：WebGL 场景（three.js）、着色器、白天和夜间两套配色。
-- `web/src/ui/`：面板、时间轴。
+- `web/src/ui/`：面板、时间轴、地点详情。
 - `web/src/preview/`：合成样例数据和模拟器。
 - `docs/spec-screen.md`：页面规格。`docs/spec-service.md`：服务规格（草稿）。
 
