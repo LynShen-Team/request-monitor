@@ -9,11 +9,12 @@ real deployment.
 
 OS-S0. Implemented in `server/`: the store (section 4), the ingest of history (section 5), the
 LynShen adapter for history (section 3), regions and the distinct-client rule (section 6), upstream
-places (section 7), the views with the restricted merge (section 8), the HTTP API (section 9), and
-identification with the guest setting (section 12).
+places (section 7), the views with the restricted merge (section 8), the HTTP API (section 9),
+identification with the guest setting (section 12), and live mode by replay for LynShen
+(section 13).
 
-OS-S0a. Not implemented: live events (OS-B2a, OS-B2b), the sub2api and new-api adapters, and
-the deployment rule OS-B7.
+OS-S0a. Not implemented: the gateway's live event outlet (OS-B2b), the sub2api and new-api
+adapters, and the deployment rule OS-B7.
 
 OS-S0b. The LynShen adapter has been run against a local PostgreSQL with synthetic rows only. It
 has not been run against a real gateway database. Identification has been run against a stand-in
@@ -102,6 +103,11 @@ Channel), terminal status (`success`, `error`, `client_gone`), TTFB when recorde
 error code. An adapter MUST NOT read a user, a key, an error message, a request or response body,
 or request headers.
 
+OS-SA2a. For live mode by replay (section 13) an adapter also gives, for the requests of a recent
+range: an identity of the request's row, and the failed attempts that preceded the serving
+Channel, each with its Channel key and its duration. The row identity is kept in memory only, to
+tell a new request from one already seen; it is not stored and not sent to a browser.
+
 OS-SA3. A Group · Channel pair carries: the gateway's stable keys of the Group and the Channel,
 both display names, the Channel base URL, and the flag `restricted` (OS-D3a).
 
@@ -131,8 +137,15 @@ request (RL1c-1), although the row is written when the request ends. The adapter
 these columns: `created_at_unix_ms`, `request_ip`, `model`, `provider_id`, `status`, `ttfb_ms`,
 `duration_ms`, `error_code`. A row without `created_at_unix_ms` (a legacy row) is not read.
 
-OS-SL4. The capabilities are `live = none` (until OS-B2b is built), `origin = true`,
-`errors = true`, `durationPrecisionMs = 1`.
+OS-SL3a. The live read (OS-SA2a) selects the same columns and `id`, and from
+`tried_providers_json` only the `provider_id` and `duration_ms` of the entries whose `outcome` is
+not `served`. That list is extracted by the database inside the statement, so the `error` text of
+an attempt never leaves the database. If the database refuses that statement (for example a row
+whose text is not JSON), the adapter reads without the failed attempts until its next start, and
+the service logs it once.
+
+OS-SL4. The capabilities are `live = replayed` (OS-B2b: until the gateway has a live outlet),
+`origin = true`, `errors = true`, `durationPrecisionMs = 1`.
 
 OS-SL5. A DSN that starts with `sqlite://` opens a file with the same three tables. It exists for
 tests and for the demo of OS-ST3. LynShen itself runs on PostgreSQL only.
@@ -250,7 +263,8 @@ site of a restricted route is in any answer to such a visitor.
 OS-SV4. Origins, models, and totals are the same in both views.
 
 OS-SV5. `Topology.origins` lists the regions that OS-SG5 shows for any day of the last 30 days,
-busiest first. `ReplayBucket.origins` is indexed like it. Requests that OS-SG5 shows under no
+in the order in which the service first saw them, so that an origin keeps its place while others
+come and go. `ReplayBucket.origins` is indexed like it. Requests that OS-SG5 shows under no
 region are in `total` and in no origin, so the origin counts of a bucket may add up to less than
 `total`.
 
@@ -276,6 +290,7 @@ OS-SH2. Endpoints:
 | `/api/meta` | `{ "gateway": string, "capabilities": Capabilities, "minClients": number, "backfilling": boolean }` |
 | `/api/topology` | `{ "version": string, "topology": Topology, "baseline24h": { "total", "errors" } }` |
 | `/api/replay?window=24h\|7d\|30d` | `{ "version": string, "data": ReplayData }`; `400 invalid_window` otherwise |
+| `/api/live`, `/api/live?after=<cursor>` | live events, OS-SR6 |
 | `/healthz` | `ok` |
 
 `Capabilities` is `{ "live": "none" | "replayed" | "realtime", "origin": boolean, "errors": boolean,
@@ -286,11 +301,14 @@ OS-SH3. Every `/api/` answer is made for the role that section 12 gives the visi
 `dev.viewer = "admin"` skips identification and makes every visitor an admin who may open the
 screen; the service refuses to start with it unless it listens on a loopback address.
 
-OS-SH4. `version` names the topology that the indices of an answer refer to. It is a hash of the
-topology that this visitor receives, so the admin view and the restricted view carry different
-versions whenever they differ, and a visitor whose role changes (signs in, or the session ends)
-receives another `version` with the next answer. `/api/topology` and `/api/replay` of the same
-moment and the same role carry the same `version`. When a replay answer carries another
+OS-SH4. `version` names the topology that the indices and ids of an answer refer to. It is a hash
+of what they mean for this visitor: the routes in order (Group name, Channel name, upstream id,
+`restricted`), the ids of the upstream sites, and the ids of the origins in order. It does not
+change when only a coordinate, a channel count, or the baseline changes. The admin view and the
+restricted view carry different versions whenever their routes differ, and a visitor whose role
+changes (signs in, or the session ends) receives another `version` with the next answer.
+`/api/topology`, `/api/replay`, and `/api/live` of the same moment and the same role carry the
+same `version`. When a replay answer carries another
 `version` than the topology the page holds, the page MUST fetch the topology again before it uses
 the answer.
 
@@ -314,6 +332,9 @@ unknown key is an error. The gateway DSN may be given in the environment variabl
 `OPSSCREEN_GATEWAY_DSN` instead of the file.
 
 OS-SC2. The service listens on `127.0.0.1:8787` unless configured otherwise.
+
+OS-SC2a. `[live]` has `enabled` (default `true`), `interval_seconds` (default 2), and
+`window_minutes` (default 15), see section 13.
 
 OS-SC3. `gateway.api_url` is the base URL of the gateway's own HTTP API, used for identification
 only. `access.guests` (default `true`) and `access.login_url` are the guest setting of OS-SN5.
@@ -382,3 +403,73 @@ another origin cannot read an answer.
 
 OS-SN9. Because the service receives the session credentials of its visitors, administrators
 included, it MUST run on infrastructure that is trusted like the gateway itself.
+
+## 13. Live mode by replay
+
+This is the decided rule OS-B2a for a gateway that writes one log row per finished request, and
+OS-B2b for LynShen. The page labels the mode `准实时` because `capabilities.live` is `replayed`.
+
+OS-SR1. Every `interval_seconds` the service reads the requests whose start lies in the last
+`window_minutes` and takes those it has not seen before. It tells them apart by the row identity
+of OS-SA2a, which it keeps in memory for that window only. A request that runs longer than the
+window is not shown in live mode; the ingest still counts it (OS-SI3).
+
+OS-SR2. Each new request becomes one lifecycle (`docs/spec-screen.md` OS-D2) that is replayed
+with its recorded durations from a replay start `T`:
+`T = max(end of the request + 6 s, the time the service saw it)`. For the requests that the first
+read after a start of the service finds, `T = end of the request + 6 s`. The 6 s cover the
+gateway's write delay and one read interval, so lifecycles normally keep the spacing of the real
+ends. The events are `start` at `T`, the `route` events of OS-SR3, `ttfb` at `T + ttfbMs` when a
+TTFB was recorded, and `end` at `T + durationMs`. The screen therefore shows the end of a request
+later than it happened by the duration of the request, plus 6 s, plus `delayMs`. It never shows a
+request that is still running at the gateway.
+
+OS-SR3. Routes. For each failed attempt the gateway recorded for the request, in order, there is
+one `route` event of that attempt's Channel: the first at `T`, each next one later by the recorded
+duration of the attempt before it. Then follows one `route` event of the Channel that served the
+request, except when the request ended in `error` and that Channel is the one of the last failed
+attempt. A request that the gateway rejected before it selected a Channel has no `route` event. No
+`route` or `ttfb` event is later than the `end` event.
+
+OS-SR4. `start.origin` is the id of the region that OS-SG5 shows for the request, when that region
+is in the topology of the answer, and `""` otherwise: the request has no shown region, or the
+region is new and enters the topology with its next version. A page draws no inbound arc for `""`
+and still counts the request.
+
+OS-SR5. The service keeps the lifecycles whose `end` event is at most 35 minutes old, and at most
+50 000 of them. The first read after a start covers the last 45 minutes, so the history of
+OS-SR6.2 is available at once.
+
+OS-SR6. `GET /api/live` answers
+`{ "version": string, "now": number, "pollMs": number, "delayMs": number, "cursor": string,
+"reset": boolean, "events": LiveEvent[] }`.
+
+1. `events` are objects of `LiveEvent` (`web/src/core/model.ts`). The events of one lifecycle are
+   always in the same answer, in lifecycle order. Lifecycles are in the order in which the service
+   created them, which is not the order of `t`: the page sorts by `t` and applies an event when
+   its live clock reaches it. An event may lie in the future of `now`.
+2. Without `after`, or with a cursor that the service cannot continue from (it was issued by
+   another run of the service, or it is older than the buffer), `reset` is `true` and `events` holds
+   every lifecycle whose `end` event is not older than 30 minutes: the history the page needs for
+   its 30-minute timeline. The page MUST drop the live events it holds before it applies them.
+3. With a cursor that the service can continue from, `reset` is `false` and `events` holds the
+   lifecycles created after that cursor.
+4. `cursor` is opaque; the page passes it as `after` with its next request. `pollMs` is how long
+   the page waits before that request.
+5. `now` is the service's clock in Unix milliseconds. The page runs its live clock `delayMs`
+   behind it (`now - delayMs` at the moment of the answer, advancing with the page's own clock), so
+   that every event arrives before the live clock reaches it. The page does not guess this value.
+6. `version` is the topology version (OS-SH4) that the `route` indices and the `origin` ids of the
+   answer refer to. When it differs from the topology the page holds, the page MUST fetch the
+   topology, drop the live events it holds, and ask again without `after`.
+7. An event `id` is a number of the service; it says nothing about the gateway's own keys, and it
+   is unique within one run of the service only.
+8. The endpoint is refused like the other data endpoints (`401 login_required`, OS-SN5). It answers
+   `404 { "error": "live_unavailable" }` when `capabilities.live` is `none`.
+
+OS-SR7. `route` indices are those of the visitor's view (section 8). In the restricted view the
+route of a restricted Channel is the index of its Group entry, so a failed attempt and the serving
+Channel of one restricted Group carry the same index. An event carries no name and no site.
+
+OS-SR8. Live events are not counted: every figure of a replay comes from the ingest alone.
+
