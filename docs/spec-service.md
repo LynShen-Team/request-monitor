@@ -412,7 +412,8 @@ OS-B2b for LynShen. The page labels the mode `准实时` because `capabilities.l
 OS-SR1. Every `interval_seconds` the service reads the requests whose start lies in the last
 `window_minutes` and takes those it has not seen before. It tells them apart by the row identity
 of OS-SA2a, which it keeps in memory for that window only. A request that runs longer than the
-window is not shown in live mode; the ingest still counts it (OS-SI3).
+window is not shown in live mode; the ingest still counts it (OS-SI3). Reading starts as soon as
+the service has stored the gateway's Channels (OS-SI5).
 
 OS-SR2. Each new request becomes one lifecycle (`docs/spec-screen.md` OS-D2) that is replayed
 with its recorded durations from a replay start `T`:
@@ -429,7 +430,8 @@ one `route` event of that attempt's Channel: the first at `T`, each next one lat
 duration of the attempt before it. Then follows one `route` event of the Channel that served the
 request, except when the request ended in `error` and that Channel is the one of the last failed
 attempt. A request that the gateway rejected before it selected a Channel has no `route` event. No
-`route` or `ttfb` event is later than the `end` event.
+`route` event is later than the `ttfb` event, and no `route` or `ttfb` event is later than the
+`end` event, whatever the recorded durations add up to.
 
 OS-SR4. `start.origin` is the id of the region that OS-SG5 shows for the request, when that region
 is in the topology of the answer, and `""` otherwise: the request has no shown region, or the

@@ -297,11 +297,13 @@ func Generate(dir string, opts Options) error {
 			// the failed attempts with their error text; the service may take the Channel and the
 			// duration of an attempt, never the text.
 			var failed string
+			var failedMs int64
 			if r.Float64() < 0.04 {
 				for _, other := range providers {
 					if other.group == p.group && other.id != p.id {
+						failedMs = int64(300 + r.IntN(2500))
 						failed = fmt.Sprintf(`{"attempt_number":1,"provider_id":%q,"channel_id":%q,"provider_name":"internal %s","channel_name":"internal %s","error":"%s attempt failed at https://secret-host.example/v1","duration_ms":%d}`,
-							other.id, "c-"+other.id, other.name, other.name, Marker, 300+r.IntN(2500))
+							other.id, "c-"+other.id, other.name, other.name, Marker, failedMs)
 						break
 					}
 				}
@@ -310,7 +312,7 @@ func Generate(dir string, opts Options) error {
 				status = "error"
 				errorCode = upstreamErrors[r.IntN(len(upstreamErrors))]
 				errorMessage = Marker + " upstream said no at https://secret-host.example/v1 api_key: sk-" + Marker
-				duration = int64(lognormal(r, 1800, 1)) + 3000
+				duration = int64(lognormal(r, 1800, 1)) + failedMs + 900
 				if failed != "" {
 					// Every attempt failed; the last one is on the Channel the row names.
 					tried = fmt.Sprintf(`[%s,{"attempt_number":2,"provider_id":%q,"channel_id":%q,"error":"%s last attempt failed","duration_ms":900}]`, failed, p.id, "c-"+p.id, Marker)
@@ -328,7 +330,11 @@ func Generate(dir string, opts Options) error {
 					status = "client_gone"
 				}
 				if failed != "" {
-					duration = duration.(int64) + 3000
+					// The time lost on the failed attempt is part of the request.
+					duration = duration.(int64) + failedMs
+					if ttfb != nil {
+						ttfb = ttfb.(int64) + failedMs
+					}
 					tried = fmt.Sprintf(`[%s,{"attempt_number":2,"provider_id":%q,"channel_id":%q,"outcome":"served"}]`, failed, p.id, "c-"+p.id)
 				}
 			}

@@ -130,7 +130,9 @@ func (l *Live) Run(ctx context.Context) {
 // refresh loads what the reader needs from the store: the route ids and the distinct-client
 // rule. Both change slowly, so they are loaded every 30 s.
 func (l *Live) refresh(now time.Time) error {
-	if l.routes != nil && now.Sub(l.refreshed) < 30*time.Second && !now.Before(l.refreshed) {
+	// While the store has no routes yet (the ingest has not read the gateway's Channels), every
+	// read looks again, so live mode starts as soon as they are there.
+	if len(l.routes) > 0 && now.Sub(l.refreshed) < 30*time.Second && !now.Before(l.refreshed) {
 		return nil
 	}
 	routes, err := l.store.Routes()
@@ -266,17 +268,23 @@ func (l *Live) build(r *gateway.Request, now time.Time) lifecycle {
 	if r.HasTTFB {
 		lc.hasTTFB, lc.ttfb = true, min(r.TTFBMs, duration)
 	}
+	// A Channel is selected before its first byte arrives and before the request ends, whatever
+	// the recorded durations of the attempts add up to.
+	latest := duration
+	if lc.hasTTFB {
+		latest = lc.ttfb
+	}
 	var at, last int64
 	tried := false
 	for _, attempt := range r.Attempts {
 		last, tried = l.routeOf(&attempt.Route), true
-		lc.routes = append(lc.routes, liveRoute{route: last, at: min(at, duration)})
+		lc.routes = append(lc.routes, liveRoute{route: last, at: min(at, latest)})
 		at += attempt.DurationMs
 	}
 	if r.Route != nil {
 		// When every attempt failed, the Channel the row names is the last failed attempt.
 		if served := l.routeOf(r.Route); !(tried && served == last && r.Status == gateway.StatusError) {
-			lc.routes = append(lc.routes, liveRoute{route: served, at: min(at, duration)})
+			lc.routes = append(lc.routes, liveRoute{route: served, at: min(at, latest)})
 		}
 	}
 	if addr, ok := geo.ParseAddr(r.ClientIP); ok {

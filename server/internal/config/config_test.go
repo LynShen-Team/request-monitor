@@ -37,12 +37,17 @@ func TestLoad(t *testing.T) {
 		"[[upstream]] entry has": "[gateway]\ndsn = \"postgres://u@h/db\"\n[[upstream]]\nname = \"x\"\n",
 		"gateway.api_url must":   "[gateway]\ndsn = \"postgres://u@h/db\"\napi_url = \"gateway:8080\"\n",
 		"access.login_url must":  "[gateway]\ndsn = \"postgres://u@h/db\"\n[access]\nlogin_url = \"javascript:alert(1)\"\n",
+		"live.interval_seconds":  "[gateway]\ndsn = \"postgres://u@h/db\"\n[live]\ninterval_seconds = 600\n",
+		"live.window_minutes":    "[gateway]\ndsn = \"postgres://u@h/db\"\n[live]\nwindow_minutes = 1\n",
 		"needs gateway.api_url":  "[gateway]\ndsn = \"postgres://u@h/db\"\n[access]\nguests = false\n",
 	}
 	for want, text := range cases {
 		if _, err := Load(write(t, text)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("config %q: error %v, want one that mentions %q", text, err, want)
 		}
+	}
+	if !cfg.LiveEnabled() || cfg.Live.IntervalSeconds != 2 || cfg.Live.WindowMinutes != 15 {
+		t.Fatalf("live defaults: %+v", cfg.Live)
 	}
 	// Guests are let in unless the configuration says otherwise.
 	if !cfg.GuestsAllowed() {

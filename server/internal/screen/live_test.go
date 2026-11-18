@@ -16,6 +16,7 @@ import (
 
 	"opsscreen/internal/devseed"
 	"opsscreen/internal/screen"
+	"opsscreen/internal/store"
 	"opsscreen/internal/testenv"
 )
 
@@ -91,6 +92,7 @@ func lifecycles(t *testing.T, answer liveAnswer, topology screen.Topology) [][]l
 			t.Fatalf("lifecycle %d: status %q with error code %q", id, last.Status, last.ErrorCode)
 		}
 		var ttfb *liveEvent
+		var lastRoute int64
 		for i := 1; i < len(events)-1; i++ {
 			event := events[i]
 			if event.T < first.T || event.T > last.T {
@@ -101,8 +103,12 @@ func lifecycles(t *testing.T, answer liveAnswer, topology screen.Topology) [][]l
 				if event.Route == nil || *event.Route < 0 || *event.Route >= len(topology.Routes) {
 					t.Fatalf("lifecycle %d: route %v is not in the topology", id, event.Route)
 				}
+				if ttfb != nil || event.T < lastRoute {
+					t.Fatalf("lifecycle %d: a route event after the ttfb event or before an earlier route", id)
+				}
+				lastRoute = event.T
 			case "ttfb":
-				if ttfb != nil || event.TTFBMs == nil || event.T-first.T != *event.TTFBMs {
+				if ttfb != nil || event.TTFBMs == nil || event.T-first.T != *event.TTFBMs || event.T < lastRoute {
 					t.Fatalf("lifecycle %d: ttfb event %+v", id, event)
 				}
 				ttfb = &events[i]
@@ -383,5 +389,41 @@ VALUES (?, 'u', 'gpt-x-large', 'p-01', 0, 'success', 900, ?, '', ?)`, fmt.Sprint
 	}
 	if after.Version != before.Version {
 		t.Fatal("the topology version changed although no index and no id changed")
+	}
+}
+
+// A service that has just started has not stored the gateway's Channels yet. Live mode reads
+// nothing until they are there, and starts with the very next read.
+func TestLiveWaitsForChannels(t *testing.T) {
+	env := testenv.New(t, testenv.Options{Days: 2, PerDay: 6000, BackfillDays: 1})
+	ctx := context.Background()
+	empty, err := store.Open(filepath.Join(t.TempDir(), "empty.db"), env.Store.Location())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer empty.Close()
+	clock := testenv.Now
+	now := func() time.Time { return clock }
+	scr := screen.New(empty, screen.Options{MinClients: 3, Now: now}, func() uint64 { return 0 })
+	live := screen.NewLive(env.Adapter, empty, env.Geo, scr, screen.LiveOptions{Now: now}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := live.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if answer, _ := ask(t, live, screen.Admin, ""); len(answer.Events) != 0 {
+		t.Fatalf("%d events before any Channel is known", len(answer.Events))
+	}
+	channels, err := env.Adapter.Channels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := empty.SyncRoutes(channels); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(2 * time.Second)
+	if err := live.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if answer, _ := ask(t, live, screen.Admin, ""); len(answer.Events) == 0 {
+		t.Fatal("no events two seconds after the Channels were stored")
 	}
 }
