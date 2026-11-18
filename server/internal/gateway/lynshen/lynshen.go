@@ -27,6 +27,8 @@ type Adapter struct {
 
 	mu     sync.Mutex
 	groups map[string]string // provider id -> group id, refreshed by Channels
+	// grouped is set once Channels has filled groups in this run (spec OS-SL6).
+	grouped atomic.Bool
 
 	// noAttempts is set when the database refused to extract the failed attempts.
 	noAttempts atomic.Bool
@@ -144,6 +146,7 @@ func (a *Adapter) Channels(ctx context.Context) ([]gateway.Channel, error) {
 	a.mu.Lock()
 	a.groups = groups
 	a.mu.Unlock()
+	a.grouped.Store(true)
 	return out, nil
 }
 
@@ -203,6 +206,13 @@ func (a *Adapter) LiveRequests(ctx context.Context, from, to time.Time, fn func(
 func (a *Adapter) AttemptsUnavailable() bool { return a.noAttempts.Load() }
 
 func (a *Adapter) read(ctx context.Context, query string, live bool, from, to time.Time, fn func(*gateway.Request) error) error {
+	// A request names its Provider only; its Group comes from the Channel list. Without that list a
+	// read right after a start would give every request an empty Group key (spec OS-SL6).
+	if !a.grouped.Load() {
+		if _, err := a.Channels(ctx); err != nil {
+			return fmt.Errorf("lynshen: requests: %w", err)
+		}
+	}
 	a.mu.Lock()
 	groups := a.groups
 	a.mu.Unlock()

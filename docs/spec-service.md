@@ -190,6 +190,13 @@ OS-SL4. The capabilities are `live = replayed` (OS-B2b: until the gateway has a 
 OS-SL5. A DSN that starts with `sqlite://` opens a file with the same three tables. It exists for
 tests and for the demo of OS-ST3. LynShen itself runs on PostgreSQL only.
 
+OS-SL6. A request row names its Provider only; the adapter takes the Provider's Group from the
+Channel list it read last (OS-SI5). Before its first read of requests in a run it reads that list
+itself, whoever asks. Reason: after a restart the store already holds the routes of the last run,
+so the live reader starts before the ingest of the new run has read the list; without it every
+request of that first read had an empty Group key and was counted on the route of Channels that
+are no longer listed.
+
 ## 4. Store
 
 OS-SS1. The store is one SQLite file, `request-monitor.db` in the data directory (or

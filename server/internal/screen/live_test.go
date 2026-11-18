@@ -15,6 +15,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/LynShen-Team/request-monitor/internal/devseed"
+	"github.com/LynShen-Team/request-monitor/internal/gateway/lynshen"
 	"github.com/LynShen-Team/request-monitor/internal/screen"
 	"github.com/LynShen-Team/request-monitor/internal/store"
 	"github.com/LynShen-Team/request-monitor/internal/testenv"
@@ -425,5 +426,45 @@ func TestLiveWaitsForChannels(t *testing.T) {
 	}
 	if answer, _ := ask(t, live, screen.Admin, ""); len(answer.Events) == 0 {
 		t.Fatal("no events two seconds after the Channels were stored")
+	}
+}
+
+// A restart keeps the store, so the live reader of the new run finds routes at once, before the
+// ingest of that run has read the gateway's Channels. The requests of its first read must still be
+// put on their own routes, not on the route of Channels that are no longer listed (spec OS-SL6).
+func TestLiveRightAfterRestart(t *testing.T) {
+	env := testenv.New(t, testenv.Options{Days: 2, PerDay: 6000, BackfillDays: 1})
+	ctx := context.Background()
+	// The new run's adapter has not read the Channels yet; the store is the last run's.
+	adapter, err := lynshen.Open("sqlite://" + filepath.Join(env.Dir, devseed.GatewayFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adapter.Close()
+	clock := testenv.Now
+	live := screen.NewLive(adapter, env.Store, env.Geo, env.Screen, screen.LiveOptions{Now: func() time.Time { return clock }}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := live.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := env.Screen.View(ctx, screen.Admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer, _ := ask(t, live, screen.Admin, "")
+	all := lifecycles(t, answer, admin.Topology)
+	if len(all) < 50 {
+		t.Fatalf("only %d lifecycles in the first read", len(all))
+	}
+	unknown, routed := 0, 0
+	for _, events := range all {
+		for _, index := range routesOf(events) {
+			routed++
+			if route := admin.Topology.Routes[index]; route.Group == "其他" && route.Channel == "已下线的渠道" {
+				unknown++
+			}
+		}
+	}
+	if routed == 0 || unknown > 0 {
+		t.Fatalf("%d of %d route events of the first read after a restart are on the route of Channels that are no longer listed", unknown, routed)
 	}
 }
