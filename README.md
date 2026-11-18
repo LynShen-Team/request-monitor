@@ -8,12 +8,16 @@
 
 | 部分 | 状态 |
 | --- | --- |
-| 页面（`web/`） | 可用，目前只有预览模式：读内置的合成样例数据，不发任何网络请求 |
-| 服务（`server/`） | 还没有实现。规格在 `docs/spec-service.md` |
+| 页面（`web/`） | 可用。两种数据来源：内置的合成样例（预览），或者下面这个服务 |
+| 服务（`server/`） | 能读 LynShen 网关的历史日志，算出 24 小时 / 7 天 / 30 天回溯给页面。规格在 `docs/spec-service.md` |
 
-所以现在能做的只有看预览。接真实网关要等服务做出来。
+还没做的：
 
-## 看预览
+- **实时**：服务还不发实时事件，页面上「实时」是灰的，打开就是 24 小时回溯。
+- **身份识别**：服务还不认人，所有访客都按「访客」看（受限分组只显示分组名）。
+- **sub2api、new-api**：适配还没写，现在只支持 LynShen。
+
+## 看预览（不需要网关）
 
 ```bash
 cd web
@@ -22,16 +26,38 @@ bun run dev            # http://localhost:5173
 bun run build:single   # 生成 dist-single/ops-screen.html，双击即可打开
 ```
 
-网址参数：`?view=2d`、`?range=24h|7d|30d`、`?theme=auto|day|night`、`?day=7-18`（白天的小时范围）、`?as=user|guest`（模拟普通用户或访客）、`?rate=10`（样例流量放大十倍）。
+网址参数：`?view=2d`、`?range=24h|7d|30d`、`?theme=auto|day|night`、`?day=7-18`（白天的小时范围）、`?as=user|guest`（模拟普通用户或访客，只在预览里有用）、`?rate=10`（样例流量放大十倍）。
 
 快捷键：1 实时，2 / 3 / 4 回溯，D 切换地球 / 平面，L 切换自动 / 白天 / 夜间，空格 播放 / 暂停，Esc 关闭详情。
 
-地图上的每个地点（来源地区、网关、上游所在地）都可以悬停看摘要、点击看详情：请求数、成功率、模型和渠道分布、最近完成的请求。拖动转动地球，滚轮或触控板捏合缩放。
+地图上的每个地点（来源地区、网关、上游所在地）都可以悬停看摘要、点击看详情：请求数、成功率、模型和渠道分布、最近完成的请求。拖动转动地球，滚轮或触控板捏合缩放。地图的取景按网关、上游和主要来源地区的位置自动算，不用配置。
 
 给预览加上自己的标题和标：写一个 `config.json`（字段见 `web/src/core/config.ts`），然后
 
 ```bash
 bun run build:single -- --config /path/to/config.json
+```
+
+## 跑服务
+
+需要 Go 和 bun。`make build` 先构建页面，再把它打进一个可执行文件。
+
+```bash
+cd server
+make build                                   # 生成 bin/opsscreen
+bin/opsscreen devseed -dir demo              # 写一个编出来的演示网关和配置
+bin/opsscreen serve -config demo/config.toml
+```
+
+然后打开配置里 `listen` 的地址（默认 `http://127.0.0.1:8787`，端口被占用就改 `listen`）。演示网关里的名字和数字全是编的。
+
+接真实的 LynShen 网关：照 `server/config.example.toml` 写配置，`dsn` 指向网关的 PostgreSQL，用一个只读账号。服务只发读语句。
+
+开发页面时连一个正在跑的服务：
+
+```bash
+cd web
+OPS_API=http://127.0.0.1:8787 bun run dev
 ```
 
 ## 设计上的几条规矩
@@ -45,10 +71,12 @@ bun run build:single -- --config /path/to/config.json
 ## 目录
 
 - `web/src/core/`：数据约定（`model.ts`、`identity.ts`、`config.ts`）、引擎、地理工具。
-- `web/src/scene/`：WebGL 场景（three.js）、着色器、白天和夜间两套配色。
+- `web/src/scene/`：WebGL 场景（three.js）、着色器、自动取景、白天和夜间两套配色。
 - `web/src/ui/`：面板、时间轴、地点详情。
 - `web/src/preview/`：合成样例数据和模拟器。
-- `docs/spec-screen.md`：页面规格。`docs/spec-service.md`：服务规格（草稿）。
+- `web/src/net/`：读服务接口的数据来源。
+- `server/`：服务（Go）。读网关、存聚合结果、给页面提供接口，并带着构建好的页面。
+- `docs/spec-screen.md`：页面规格。`docs/spec-service.md`：服务规格。
 
 ## 许可证
 

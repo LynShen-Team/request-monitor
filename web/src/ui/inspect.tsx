@@ -86,7 +86,7 @@ function Ranks({ title, rows, mono }: { title: string; rows: RankRow[]; mono?: b
 }
 
 /** The detail card of the selected map node. */
-export function NodePanel({ detail, onClose }: { detail: NodeDetail; onClose: () => void }) {
+export function NodePanel({ detail, errors, onClose }: { detail: NodeDetail; errors: boolean; onClose: () => void }) {
   const live = detail.inflight !== null;
   return (
     <section className="card inspect is-grow is-floor" aria-label={`${detail.name} 详情`}>
@@ -116,10 +116,10 @@ export function NodePanel({ detail, onClose }: { detail: NodeDetail; onClose: ()
             成功率
           </div>
           <div className="stat-value">
-            {detail.okRate !== null ? (detail.okRate * 100).toFixed(detail.okRate >= 0.9995 ? 0 : 1) : "—"}
+            {detail.okRate !== null ? (detail.okRate * 100).toFixed(detail.okRate >= 0.9995 ? 0 : 1) : errors ? "—" : "未记录"}
             {detail.okRate !== null ? <em>%</em> : null}
           </div>
-          <div className="stat-sub num">{detail.ttfbP50 !== null ? `首字 ${formatSeconds(detail.ttfbP50)}` : detail.okRate === null ? "回溯时未统计" : " "}</div>
+          <div className="stat-sub num">{!errors ? "网关没有记录失败" : detail.ttfbP50 !== null ? `首字 ${formatSeconds(detail.ttfbP50)}` : detail.okRate === null ? "回溯时未统计" : " "}</div>
         </div>
         <div className="stat">
           <div className="stat-label">{live ? "进行中" : "占比"}</div>
@@ -138,8 +138,8 @@ export function NodePanel({ detail, onClose }: { detail: NodeDetail; onClose: ()
               <div className="rank" key={row.key}>
                 <span className="rank-name">{row.restricted ? row.group : `${row.group} · ${row.channel}`}</span>
                 <span className="rank-count">
-                  {row.okRate < 0.97 ? <i className="dot" style={{ ...tone(health(row.okRate)), marginRight: "calc(5 * var(--px))" }} /> : null}
-                  成功 {percent(row.okRate)}
+                  {errors && row.okRate < 0.97 ? <i className="dot" style={{ ...tone(health(row.okRate)), marginRight: "calc(5 * var(--px))" }} /> : null}
+                  {errors ? `成功 ${percent(row.okRate)}` : formatCount(row.count)}
                 </span>
                 <span className="rank-share">{share(row.share)}</span>
                 <div className="bar">

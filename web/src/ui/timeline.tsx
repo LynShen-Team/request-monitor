@@ -167,7 +167,13 @@ export function Timeline({ snap, engine }: { snap: Snapshot; engine: OpsEngine |
                 {dayTime.format(snap.range.from)} – {snap.wholeWindow ? dayTime.format(snap.range.to) : hourMinute.format(snap.range.to)}
               </b>
               {" · "}
-              <b>{formatCount(rangeTotal)}</b> 次 · 成功率 <b>{(snap.kpi.successRate * 100).toFixed(1)}%</b>
+              <b>{formatCount(rangeTotal)}</b> 次
+              {snap.caps.errors ? (
+                <>
+                  {" · 成功率 "}
+                  <b>{(snap.kpi.successRate * 100).toFixed(1)}%</b>
+                </>
+              ) : null}
             </>
           )}
         </div>

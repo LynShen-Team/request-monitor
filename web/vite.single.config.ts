@@ -6,6 +6,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   base: './',
+  define: { __OPS_SOURCE__: JSON.stringify('preview') },
   build: {
     outDir: 'dist-single',
     assetsInlineLimit: 100_000_000,

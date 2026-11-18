@@ -6,9 +6,7 @@ import { loadLand } from "./core/geo";
 import { ROLE_LABEL, viewerOf, type Role } from "./core/identity";
 import type { ReplayWindow } from "./core/model";
 import type { ViewMode } from "./core/view";
-import { PreviewConfig } from "./preview/config";
-import { PreviewIdentity } from "./preview/identity";
-import { PreviewLive, PreviewReplay, loadPreviewData } from "./preview/sim";
+import { openSources, type Sources } from "./sources";
 import { NodePanel, NodeTip } from "./ui/inspect";
 import { Scene3D } from "./scene/scene";
 import { useAppearance } from "./ui/appearance";
@@ -55,6 +53,10 @@ export default function App() {
   // Null until the identity source has answered; the screen shows nothing role-dependent before.
   const [role, setRole] = useState<Role | null>(null);
   const [config, setConfig] = useState<ScreenConfig>(DEFAULT_CONFIG);
+  const [sources, setSources] = useState<Pick<Sources, "kind" | "backfilling" | "checkBackfilling" | "minClients"> | null>(null);
+  // The data source did not answer at start; `attempt` counts the tries.
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   // The map node under the pointer and the node whose detail card is open.
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -84,19 +86,40 @@ export default function App() {
     const observer = new ResizeObserver(layout);
     observer.observe(root);
     let virtualNow = Number(params.get("t")) || Date.now();
+    let retry = 0;
 
     void (async () => {
-      const [land, data, identified, loaded] = await Promise.all([loadLand(), loadPreviewData(virtualNow), new PreviewIdentity(params).identify(), new PreviewConfig().load()]);
+      const land = await loadLand();
       if (disposed) return;
-      setRole(identified);
-      setConfig(loaded);
       scene.setLand(land);
-      const rate = Math.max(0.1, Math.min(50, Number(params.get("rate")) || 1));
-      const created = new OpsEngine(scene, new PreviewLive(data, manual ? virtualNow : Date.now(), rate), new PreviewReplay(data));
+      let opened: Sources;
+      try {
+        opened = await openSources(params, manual ? virtualNow : Date.now());
+      } catch {
+        if (disposed) return;
+        // The service did not answer: say so and try again, instead of showing an empty screen.
+        setFailed(true);
+        retry = window.setTimeout(() => setAttempt((n) => n + 1), 10_000);
+        // The map stays on screen behind the message.
+        const idle = () => {
+          scene.draw(performance.now());
+          if (!manual) frame = requestAnimationFrame(idle);
+        };
+        idle();
+        return;
+      }
+      if (disposed) return;
+      setFailed(false);
+      setRole(opened.role);
+      setConfig(opened.config);
+      setSources({ kind: opened.kind, backfilling: opened.backfilling, checkBackfilling: opened.checkBackfilling, minClients: opened.minClients });
+      const created = new OpsEngine(scene, opened.live, opened.replay);
       created.snapView(initialView);
-      created.setViewer(viewerOf(identified));
+      created.setViewer(viewerOf(opened.role));
       const range = params.get("range");
       if (range === "24h" || range === "7d" || range === "30d") created.setReplay(range);
+      // A source with no live mode opens on the newest day.
+      else if (opened.live.capabilities.live === "none") created.setReplay("24h");
       setEngine(created);
       if (manual) {
         window.__opsScreen = {
@@ -120,6 +143,7 @@ export default function App() {
     return () => {
       disposed = true;
       cancelAnimationFrame(frame);
+      window.clearTimeout(retry);
       observer.disconnect();
       scene.dispose();
       sceneRef.current = null;
@@ -127,11 +151,26 @@ export default function App() {
     };
     // The scene is created once; a theme change is applied by the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manual, params, initialView]);
+  }, [manual, params, initialView, attempt]);
 
   useEffect(() => {
     sceneRef.current?.setTheme(theme);
   }, [theme]);
+
+  // The notice about older history goes away once the service has read it all.
+  useEffect(() => {
+    const check = sources?.backfilling ? sources.checkBackfilling : undefined;
+    if (!check) return;
+    const timer = window.setInterval(() => {
+      void check().then(
+        (still) => {
+          if (!still) setSources((current) => (current ? { ...current, backfilling: false } : current));
+        },
+        () => {},
+      );
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [sources]);
 
   useEffect(() => {
     sceneRef.current?.setFocus(hoverId, selectedId);
@@ -217,6 +256,8 @@ export default function App() {
   const selectedDetail = useMemo(() => (engine && selectedId ? engine.detail(selectedId, snap.clock) : null), [engine, selectedId, snap]);
   const live = snap.mode === "live";
   const scope = live ? "近 15 分钟" : snap.wholeWindow ? "整个时间窗" : "当前时段";
+  // A failed refresh keeps the last data on screen; a window that never loaded has none to keep.
+  const notice = snap.stale ? (snap.ready ? "数据服务暂时连不上，显示的是上一次取到的数据。" : "数据服务暂时连不上，正在自动重试。") : sources?.backfilling ? "服务还在读取更早的历史，较早的时间段可能还是空的。" : null;
 
   return (
     <div ref={rootRef} className={`ops${manual ? " is-manual" : ""}`} style={theme.css as CSSProperties} data-theme={theme.id}>
@@ -274,12 +315,17 @@ export default function App() {
           ) : null}
         </div>
         <div className="seg" role="group" aria-label="时间范围">
-          {RANGES.map((item) => (
-            <button key={item.id} type="button" aria-pressed={range === item.id} onClick={() => selectRange(item.id)}>
-              {item.id === "live" ? <span className="live-dot" /> : null}
-              {item.label}
-            </button>
-          ))}
+          {RANGES.map((item) => {
+            // A source that shows a request only after it ended is labelled as such, never as live.
+            const off = item.id === "live" && engine !== null && snap.caps.live === "none";
+            const replayed = item.id === "live" && snap.caps.live === "replayed";
+            return (
+              <button key={item.id} type="button" aria-pressed={engine !== null && range === item.id} disabled={off || engine === null} title={off ? "这个数据服务还没有实时模式" : replayed ? "请求结束后才显示，比实际晚一个请求的时长" : undefined} onClick={() => selectRange(item.id)}>
+                {item.id === "live" && !off && engine !== null ? <span className="live-dot" /> : null}
+                {replayed ? "准实时" : item.label}
+              </button>
+            );
+          })}
         </div>
         <div className="top-right">
           <div className="seg" role="group" aria-label="地图视图">
@@ -312,20 +358,37 @@ export default function App() {
       <aside className="col is-left">
         <ThroughputPanel snap={snap} />
         <RankPanel title="模型" hint={scope} rows={snap.models} ready={snap.ready} limit={9} mono />
-        <RankPanel title="来源地区" hint={config.note ? `${config.note}，城市级` : "城市级"} rows={snap.origins} ready={snap.ready} limit={9} />
+        <RankPanel
+          title="来源地区"
+          hint={sources?.minClients ? `不足 ${sources.minClients} 个客户端的城市并入省份` : config.note ? `${config.note}，城市级` : "城市级"}
+          rows={snap.origins}
+          ready={snap.ready}
+          limit={9}
+          missing={engine !== null && !snap.caps.origin ? "这个网关没有记录请求的来源地区。" : undefined}
+        />
       </aside>
 
       <aside className="col is-right">
         <RoutePanel snap={snap} />
         {/* The detail of a selected map node takes the place of the lower card, so it never covers the map. */}
-        {selectedDetail ? <NodePanel detail={selectedDetail} onClose={() => setSelectedId(null)} /> : live ? <FeedPanel snap={snap} /> : <SummaryPanel snap={snap} />}
+        {selectedDetail ? <NodePanel detail={selectedDetail} errors={snap.caps.errors} onClose={() => setSelectedId(null)} /> : live ? <FeedPanel snap={snap} /> : <SummaryPanel snap={snap} />}
       </aside>
 
       <div ref={centerRef} className="center" />
       {sceneRef.current && hoverDetail ? <NodeTip scene={sceneRef.current} detail={hoverDetail} /> : null}
-      <Legend live={live} attribution={config.attribution} />
+      <Legend live={live} errors={snap.caps.errors} attribution={config.attribution} />
       <Timeline snap={snap} engine={engine} />
-      {engine ? null : <div className="boot">正在加载</div>}
+      {notice ? <div className="notice">{notice}</div> : null}
+      {engine ? null : failed ? (
+        <div className="boot is-failed">
+          <div>连不上数据服务，10 秒后自动重试。</div>
+          <button type="button" className="btn" onClick={() => setAttempt((n) => n + 1)}>
+            现在重试
+          </button>
+        </div>
+      ) : (
+        <div className="boot">正在加载</div>
+      )}
     </div>
   );
 }

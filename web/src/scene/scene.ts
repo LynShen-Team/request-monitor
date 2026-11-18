@@ -13,6 +13,7 @@ import {
   SURFACE_FRAGMENT,
   SURFACE_VERTEX,
 } from "./shaders";
+import { FLAT_CENTRE_Y, FLAT_PITCH, FLAT_S, FLAT_TARGET_Z, FOV, START_FRAME, fitFlat, frameFor, type FlatFit, type Frame, type FramePoint } from "./frame";
 import type { Theme } from "./theme";
 
 // Colours are authored in sRGB and blended as such, so a hex value looks the same here and in CSS.
@@ -25,17 +26,9 @@ export interface SafeRect {
   h: number;
 }
 
-/** Longitude at the centre of the flat map (the Pacific), and the latitude at its depth origin. */
-const LON_CENTER = 187;
-const FLAT_LAT = 30;
-/** World units per radian of the flat map; the globe has radius 1. */
-const FLAT_S = 0.55;
-const FLAT_V0 = millerY(FLAT_LAT);
-/** Longitudes the flat view keeps between the side panels (East Asia to the US West). */
-const FLAT_SPAN = 150 * DEG * FLAT_S;
-const FOV = 30;
-const CAM_LON = 178;
-const CAM_LAT = 42;
+/** The map's mesh reaches this many degrees past its east and west edges. */
+const MESH_EXTRA = 90;
+const MAX_ZOOM = 1.7;
 const MORPH_MS = 1500;
 const MAX_ARCS = 224;
 const MAX_COMETS = 700;
@@ -45,6 +38,11 @@ const SURFACE = 1.004;
 const UP = new THREE.Vector3(0, 1, 0);
 const FORWARD = new THREE.Vector3(0, 0, 1);
 
+/** Colour of an upstream site by its success share; the dispatch colour when that is unknown. */
+function siteTone(health: number | null): Tone {
+  return health === null ? "out" : health >= 0.95 ? "ok" : health >= 0.8 ? "gone" : "err";
+}
+
 function globePoint(lon: number, lat: number, out: THREE.Vector3, radius = 1): THREE.Vector3 {
   const phi = lat * DEG;
   const lambda = lon * DEG;
@@ -52,10 +50,6 @@ function globePoint(lon: number, lat: number, out: THREE.Vector3, radius = 1): T
   return out.set(c * Math.sin(lambda), Math.sin(phi) * radius, c * Math.cos(lambda));
 }
 
-function flatPoint(lon: number, lat: number, out: THREE.Vector3, y = 0): THREE.Vector3 {
-  const clamped = Math.max(-80, Math.min(84, lat));
-  return out.set(wrapLon(lon - LON_CENTER) * DEG * FLAT_S, y, -(millerY(clamped) - FLAT_V0) * FLAT_S);
-}
 
 function easeInOut(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
@@ -95,7 +89,8 @@ interface SNode {
   activity: number;
   value: number;
   valueTarget: number;
-  health: number;
+  /** Null: the source records no failures, so the site has no health colour. */
+  health: number | null;
   inflight: number;
   sub: string;
   /** An upstream in the gateway's own data centre: drawn as a ring around the gateway, with no arc. */
@@ -183,8 +178,12 @@ export class Scene3D implements FlowView {
   private orbitLon = 0;
   private orbitLat = 0;
   private yaw = 0;
-  private pitch = 56;
+  private pitch = FLAT_PITCH;
   private zoomFactor = 1;
+  private frame: Frame = START_FRAME;
+  /** The nodes both views must show, and how far back the flat camera stands to show them. */
+  private keyPoints: FramePoint[] = [];
+  private flat: FlatFit = { reach: 2.5, maxZoom: MAX_ZOOM };
   private random = 0x51f2a9;
 
   private readonly uMorph = { value: 0 };
@@ -283,36 +282,7 @@ export class Scene3D implements FlowView {
     this.air.renderOrder = -5;
     this.scene.add(this.air);
 
-    // The Earth's surface: a lon / lat grid with a place on the globe and a place on the map per
-    // vertex. It reaches past the map's east and west edges, so the flat map continues there
-    // instead of ending in a straight cut; on the globe those columns lie on top of others.
-    const EXTRA = 78;
-    const STEP = 1.5;
-    const cols = Math.round((360 + 2 * EXTRA) / STEP);
-    const rows = Math.round(180 / STEP);
-    const globe = new Float32Array((cols + 1) * (rows + 1) * 3);
-    const flat = new Float32Array((cols + 1) * (rows + 1) * 3);
-    const uv = new Float32Array((cols + 1) * (rows + 1) * 2);
-    const index: number[] = [];
-    const point = new THREE.Vector3();
-    for (let j = 0; j <= rows; j++) {
-      const lat = -90 + j * STEP;
-      const z = -(millerY(Math.max(-80, Math.min(84, lat))) - FLAT_V0) * FLAT_S;
-      for (let i = 0; i <= cols; i++) {
-        const lon = LON_CENTER - 180 - EXTRA + i * STEP;
-        const k = j * (cols + 1) + i;
-        globePoint(lon, lat, point, 0.999);
-        globe.set([point.x, point.y, point.z], k * 3);
-        flat.set([(lon - LON_CENTER) * DEG * FLAT_S, 0, z], k * 3);
-        uv.set([(lon + 180) / 360, (lat + 90) / 180], k * 2);
-        if (i < cols && j < rows) index.push(k, k + 1, k + cols + 2, k, k + cols + 2, k + cols + 1);
-      }
-    }
-    const surfaceGeometry = new THREE.BufferGeometry();
-    surfaceGeometry.setAttribute("position", new THREE.BufferAttribute(globe, 3));
-    surfaceGeometry.setAttribute("aFlat", new THREE.BufferAttribute(flat, 3));
-    surfaceGeometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-    surfaceGeometry.setIndex(index);
+    const surfaceGeometry = this.buildSurface();
     const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
     blank.needsUpdate = true;
     this.surface = new THREE.Mesh(
@@ -507,7 +477,61 @@ export class Scene3D implements FlowView {
     this.surface.material.uniforms.uMap!.value = map;
   }
 
+  private flatPoint(lon: number, lat: number, out: THREE.Vector3, y = 0): THREE.Vector3 {
+    const clamped = Math.max(-80, Math.min(84, lat));
+    return out.set(wrapLon(lon - this.frame.lon) * DEG * FLAT_S, y, -(millerY(clamped) - millerY(this.frame.lat)) * FLAT_S);
+  }
+
+  /**
+   * The Earth's surface: a lon / lat grid with a place on the globe and a place on the map per
+   * vertex. It reaches past the map's east and west edges, so the flat map continues there
+   * instead of ending in a straight cut; on the globe those columns lie on top of others.
+   */
+  private buildSurface(): THREE.BufferGeometry {
+    const EXTRA = MESH_EXTRA;
+    const STEP = 1.5;
+    const cols = Math.round((360 + 2 * EXTRA) / STEP);
+    const rows = Math.round(180 / STEP);
+    const globe = new Float32Array((cols + 1) * (rows + 1) * 3);
+    const flat = new Float32Array((cols + 1) * (rows + 1) * 3);
+    const uv = new Float32Array((cols + 1) * (rows + 1) * 2);
+    const index: number[] = [];
+    const point = new THREE.Vector3();
+    const v0 = millerY(this.frame.lat);
+    for (let j = 0; j <= rows; j++) {
+      const lat = -90 + j * STEP;
+      const z = -(millerY(Math.max(-80, Math.min(84, lat))) - v0) * FLAT_S;
+      for (let i = 0; i <= cols; i++) {
+        const lon = this.frame.lon - 180 - EXTRA + i * STEP;
+        const k = j * (cols + 1) + i;
+        globePoint(lon, lat, point, 0.999);
+        globe.set([point.x, point.y, point.z], k * 3);
+        flat.set([(lon - this.frame.lon) * DEG * FLAT_S, 0, z], k * 3);
+        uv.set([(lon + 180) / 360, (lat + 90) / 180], k * 2);
+        if (i < cols && j < rows) index.push(k, k + 1, k + cols + 2, k, k + cols + 2, k + cols + 1);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(globe, 3));
+    geometry.setAttribute("aFlat", new THREE.BufferAttribute(flat, 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    geometry.setIndex(index);
+    return geometry;
+  }
+
   setNodes(defs: MapNode[]) {
+    // The views are framed on the gateway, the upstream sites, and the 12 first user regions:
+    // outlying regions further down the list do not pull the view away.
+    this.keyPoints = [...defs.filter((def) => def.kind !== "origin"), ...defs.filter((def) => def.kind === "origin").slice(0, 12)].map((def) => ({ lon: def.lon, lat: def.lat, kind: def.kind }));
+    const frame = frameFor(this.keyPoints);
+    const moved = frame.lon !== this.frame.lon || frame.lat !== this.frame.lat;
+    this.frame = frame;
+    if (moved) {
+      this.surface.geometry.dispose();
+      this.surface.geometry = this.buildSurface();
+    }
+    this.refit();
+
     this.nodeGroup.clear();
     for (const node of this.nodes.values()) node.label?.el.remove();
     this.leads.replaceChildren();
@@ -529,10 +553,10 @@ export class Scene3D implements FlowView {
         lon: def.lon,
         lat: def.lat,
         g: trueG.clone(),
-        f: flatPoint(def.lon, def.lat, new THREE.Vector3(), 0.004),
+        f: this.flatPoint(def.lon, def.lat, new THREE.Vector3(), 0.004),
         n: trueG.clone().normalize(),
         trueG,
-        trueF: flatPoint(def.lon, def.lat, new THREE.Vector3(), 0.004),
+        trueF: this.flatPoint(def.lon, def.lat, new THREE.Vector3(), 0.004),
         pos: new THREE.Vector3(),
         up: new THREE.Vector3(0, 1, 0),
         facing: 1,
@@ -541,7 +565,7 @@ export class Scene3D implements FlowView {
         activity: old?.activity ?? 0,
         value: old?.value ?? 0,
         valueTarget: old?.valueTarget ?? 0,
-        health: old?.health ?? 1,
+        health: old ? old.health : 1,
         inflight: old?.inflight ?? 0,
         sub: old?.sub ?? def.sub ?? "",
         colo: false,
@@ -573,6 +597,12 @@ export class Scene3D implements FlowView {
     this.uDpr.value = dpr * ui;
     this.camera.aspect = width / height;
     this.leads.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    this.refit();
+  }
+
+  private refit() {
+    if (this.width <= 0 || this.height <= 0 || this.safe.w <= 0) return;
+    this.flat = fitFlat(this.frame, this.keyPoints, { width: this.width, height: this.height, safe: this.safe, ui: this.ui }, 360 + 2 * MESH_EXTRA);
   }
 
   setView(view: ViewMode, now: number) {
@@ -601,7 +631,9 @@ export class Scene3D implements FlowView {
   }
 
   zoom(delta: number) {
-    this.zoomFactor = Math.max(0.6, Math.min(1.7, this.zoomFactor * Math.exp(delta * 0.0012)));
+    // The flat map does not zoom out past the width of its mesh.
+    const max = this.view === "2d" ? Math.min(MAX_ZOOM, this.flat.maxZoom) : MAX_ZOOM;
+    this.zoomFactor = Math.max(0.6, Math.min(max, this.zoomFactor * Math.exp(delta * 0.0012)));
   }
 
   /** The node under a point of the canvas (CSS pixels), or null. The nearest node within reach wins. */
@@ -766,7 +798,7 @@ export class Scene3D implements FlowView {
       node.lon = pos[i]!.lon;
       node.lat = pos[i]!.lat;
       globePoint(node.lon, node.lat, node.g, SURFACE);
-      flatPoint(node.lon, node.lat, node.f, 0.004);
+      this.flatPoint(node.lon, node.lat, node.f, 0.004);
       node.n.copy(node.g).normalize();
       const moved = Math.hypot(wrapLon(node.lon - node.def.lon), node.lat - node.def.lat) > 0.8;
       segments.push([node, moved]);
@@ -948,7 +980,7 @@ export class Scene3D implements FlowView {
         continue;
       }
       label.el.style.transform = `translate3d(${label.x.toFixed(1)}px,${label.y.toFixed(1)}px,0)`;
-      const tone = node.def.kind === "gateway" ? "in" : node.health >= 0.95 ? "ok" : node.health >= 0.8 ? "gone" : "err";
+      const tone = node.def.kind === "gateway" ? "in" : siteTone(node.health);
       if (label.el.dataset.tone !== tone) label.el.dataset.tone = tone;
       if (label.line) {
         const midY = label.y + label.h / 2;
@@ -1034,18 +1066,19 @@ export class Scene3D implements FlowView {
     // The globe is larger than the scene area and sits low: the timeline covers its south.
     const radiusPx = Math.min(safe.h * 0.61, safe.w * 0.53);
     const tanHalf = Math.tan((FOV * DEG) / 2);
-    const distance = (1 / Math.sin(Math.atan((radiusPx / (this.height / 2)) * tanHalf))) * this.zoomFactor;
-    globePoint(CAM_LON + this.orbitLon + Math.sin(now / 23000) * 7, CAM_LAT + this.orbitLat + Math.sin(now / 31000) * 2.2, this.camGlobe, distance);
-    const reach = (FLAT_SPAN / (2 * tanHalf * (safe.w / this.height))) * this.zoomFactor;
+    const zf = Math.min(this.zoomFactor, MAX_ZOOM + (Math.min(MAX_ZOOM, this.flat.maxZoom) - MAX_ZOOM) * m);
+    const distance = (1 / Math.sin(Math.atan((radiusPx / (this.height / 2)) * tanHalf))) * zf;
+    globePoint(this.frame.camLon + this.orbitLon + Math.sin(now / 23000) * 7, this.frame.camLat + this.orbitLat + Math.sin(now / 31000) * 2.2, this.camGlobe, distance);
+    const reach = this.flat.reach * zf;
     const yaw = (this.yaw + Math.sin(now / 27000) * 5) * DEG;
     const pitch = this.pitch * DEG;
-    this.camTarget.set(-0.115, 0, -0.07);
+    this.camTarget.set(0, 0, FLAT_TARGET_Z);
     this.camFlat.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(reach).add(this.camTarget);
     this.camera.position.copy(this.camGlobe).lerp(this.camFlat, m);
     this.camera.up.copy(UP);
     this.camera.lookAt(this.tmpA.set(0, 0, 0).lerp(this.camTarget, m));
     const cx = safe.x + safe.w / 2;
-    const cy = safe.y + safe.h * (0.63 - 0.01 * m);
+    const cy = safe.y + safe.h * (FLAT_CENTRE_Y + 0.01 * (1 - m));
     this.camera.setViewOffset(this.width, this.height, this.width / 2 - cx, this.height / 2 - cy, this.width, this.height);
     this.camera.updateMatrixWorld();
     this.uFocus.value.copy(this.camTarget);
@@ -1058,7 +1091,6 @@ export class Scene3D implements FlowView {
     this.air.visible = globeShow > 0.01;
     // Nodes. Glyph sizes are multiplied by the zoom factor (the camera distance scales with it),
     // so markers keep their size on screen while the map under them zooms.
-    const zf = this.zoomFactor;
     const smooth = 1 - Math.exp(-dt / 260);
     const camPos = this.camera.position;
     for (const node of this.nodes.values()) {
@@ -1073,7 +1105,7 @@ export class Scene3D implements FlowView {
       node.sy = (-this.tmpA.y * 0.5 + 0.5) * this.height;
 
       const kind = node.def.kind;
-      const tone: Tone | "gateway" = kind === "gateway" ? "in" : kind === "origin" ? "in" : node.health >= 0.95 ? "ok" : node.health >= 0.8 ? "gone" : "err";
+      const tone: Tone = kind === "upstream" ? siteTone(node.health) : "in";
       const color = this.colors[tone];
       const act = Math.min(1, node.activity);
       // A site is a dot; the gateway and upstream sites also carry a thin ring. Sizes follow volume.

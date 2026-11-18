@@ -3,12 +3,26 @@
 ## 0. Status
 
 OS-0. This file specifies the browser page in `web/`. The service that feeds it is specified in
-`docs/spec-service.md`. The page works today as a preview on sample data; the network data source
-does not exist yet.
+`docs/spec-service.md`. The page has two data sources: the preview (built-in sample data) and the
+network source, which reads the service. The network source reads replay data; it has no live
+events and no identification, because the service does not have them yet
+(`docs/spec-service.md` OS-S0a).
 
 OS-P1. In preview mode the page MUST NOT send any network request. It reads its data only from
 `web/src/preview/`. `bun run build:single` produces one self-contained HTML file that runs from
 disk.
+
+OS-P1a. The build decides the data source (`web/src/sources.ts`):
+
+| Command | Source |
+| --- | --- |
+| `bun run build:single` | preview |
+| `bun run dev` | preview |
+| `OPS_API=<service URL> bun run dev` | network; the dev server forwards `/api` to that URL |
+| `bun run build` | network. This is the build that the service embeds and serves |
+
+In a network build, `?source=preview` shows the built-in sample instead and sends no request to
+the service.
 
 OS-P2. The sample data of the preview is synthetic. It is generated in the browser from a fixed
 seed by `web/src/preview/sample.ts`, and its time axis ends at the current hour. The repository
@@ -64,6 +78,60 @@ minutes for `7d` (336 buckets), 2 hours for `30d` (360 buckets). A bucket holds 
 the error count, the TTFB median, the request and error count per route, the request count per
 origin, and the request count per model.
 
+OS-D5. Capabilities. A source states what its gateway records (`Capabilities` in
+`web/src/core/model.ts`), and the page labels what is missing instead of showing a value:
+
+| Capability | Value | The page |
+| --- | --- | --- |
+| `live` | `none` | disables `实时` and opens on the `24 小时` replay |
+| `live` | `replayed` | labels the control `准实时`; its tooltip says that a request appears after it ended |
+| `live` | `realtime` | labels the control `实时` |
+| `errors` | `false` | shows `未记录` in place of the success rate and of the failure count; shows no success rate on a route row, in the timeline, in the tooltip, or in the detail card; omits `失败` from the legend; draws every upstream site in the dispatch colour instead of a status colour (OS-M6) |
+| `origin` | `false` | shows `这个网关没有记录请求的来源地区。` in place of the origin ranking |
+
+OS-D6. The origin counts of a bucket can sum to less than its request count: the service does not
+place a request whose client address has no known region. When the difference is at least 0.5
+requests and at least 0.1 % of the bucket set, the origin ranking has a row `未归入地区` with it.
+
+## 1a. Network source
+
+OS-N1. The network source (`web/src/net/source.ts`) reads the endpoints of
+`docs/spec-service.md` OS-SH2 with `GET`. A path is relative to the page URL, so the service works
+under any path of a reverse proxy. A request sends same-origin credentials, bypasses the HTTP
+cache, and fails after 15 s.
+
+OS-N2. Start. The page asks `api/meta`, `api/topology`, `api/identity`, and `api/config` at the
+same time. A failed `api/identity` means the role `guest`. A failed `api/config` means the default
+config (OS-U5). When `api/meta` or `api/topology` fails, the page shows
+`连不上数据服务，10 秒后自动重试。` with a button `现在重试`, and tries again every 10 s. The map
+stays on screen behind the message.
+
+OS-N2a. Until a source has delivered data, the page shows no figure: a panel shows its loading
+state, a headline figure shows `—`, and no value of the range control is selected or enabled. In
+particular the success rate MUST NOT read 100 %.
+
+OS-N3. Topology version (`docs/spec-service.md` OS-SH4). The indices of a replay answer refer to
+the topology of the same `version`. When a replay answer has another version than the topology in
+the page, the page fetches `api/topology`, replaces its topology and its nodes, and, if the
+replay answer does not have the new version, fetches the replay again. After 3 such rounds without
+a match the load counts as failed.
+
+OS-N4. A replay window is fetched when it is selected and again each time the playhead restarts
+(OS-R2), so a screen that runs unattended shows new buckets. A refresh keeps the playhead.
+
+OS-N5. Failure of a replay request. The page tries again after 15 s. If it has data of that
+window, it keeps showing them with the line `数据服务暂时连不上，显示的是上一次取到的数据。`;
+otherwise the panels show their loading state, the scene shows no flow, and the line is
+`数据服务暂时连不上，正在自动重试。`.
+
+OS-N6. While `backfilling` of `api/meta` is true, the page shows
+`服务还在读取更早的历史，较早的时间段可能还是空的。` and asks `api/meta` again every 15 s; the line
+goes away when the answer is false. The buckets that were empty appear with the next fetch of the
+window (OS-N4).
+
+OS-N7. With the network source the hint of the origin ranking is
+`不足 N 个客户端的城市并入省份`, where N is `minClients` of `api/meta`.
+
 ## 2. Scene
 
 OS-M1. The scene has three node kinds: one gateway, upstream sites, and origins (user regions).
@@ -71,18 +139,49 @@ Land is drawn from the Natural Earth 1:50m coastline as a filled shape with a co
 The scene MUST NOT draw a country or province border. A graticule every 15 degrees is drawn as a
 dashed line (2.5 degrees on, 2.5 off) in both views.
 
-OS-M2. Two views show the same scene in WebGL: `3d`, a globe, and `2d`, a flat Miller map centred
-on 187°E seen from above at an angle. The surface, every node, arc, and comet has a position in
-both views. A view switch blends the positions for 1500 ms; arcs, comets, and labels fade out
-during the first half and in during the second. The flat map continues 78 degrees past its east
-and west edges, so no edge of the map is visible. A pointer drag turns the globe or swings the
-camera over the map.
+OS-M2. Two views show the same scene in WebGL: `3d`, a globe, and `2d`, a flat Miller map seen
+from above at an angle. The surface, every node, arc, and comet has a position in both views. A
+view switch blends the positions for 1500 ms; arcs, comets, and labels fade out during the first
+half and in during the second. The flat map continues 90 degrees past its east and west edges, so
+no edge of the map is visible. A pointer drag turns the globe or swings the camera over the map.
 
 OS-M2a. Zoom changes the camera distance by a factor from 0.6 to 1.7. A wheel event over the
 scene, a wheel event with the control key anywhere on the page (a trackpad pinch), and a WebKit
 gesture event all zoom the scene and have their default action prevented, so the page itself is
 never zoomed and the panels keep their size. Node markers are scaled by the zoom factor, so they
-keep their size on screen.
+keep their size on screen. In the flat view the largest factor is lower when the canvas would
+otherwise show more than the width of the map (540 degrees less 12).
+
+OS-M2b. Framing. Where the views look is computed from the nodes (`web/src/scene/frame.ts`), so a
+gateway anywhere on Earth is in the picture without a setting. The key points are the gateway,
+the upstream sites, and the first 12 origins of the topology. The frame is computed again when the
+topology changes, and the fit of rule 4 also when the page is resized.
+
+1. Centre. C is the point on the sphere whose largest angular distance to a key point is smallest.
+   C is then moved toward the gateway in longitude and in latitude by the largest share of
+   {0.25, 0.2, 0.15, 0.1, 0.05, 0} at which the gateway and every upstream site are within 66
+   degrees of the moved point, or by 0.25 when none of them does that.
+2. Globe. The camera stands above the moved point. If the gateway is not well in view from there,
+   the camera moves along the great circle toward the gateway, in steps of one fiftieth, until it
+   is. Well in view means: within 60 degrees of the point under the camera; no more than 0.66 of
+   the globe's radius east or west of the centre of the disc; no more than 0.35 of the radius
+   below it (the timeline covers the south of the globe) and no more than 0.8 above. The camera
+   latitude is limited to the range from −55 to 60 degrees.
+3. Flat map, centre. The map is cut in a gap between the longitudes of two neighbouring key points,
+   and its centre meridian is the middle of the remaining span. The gap is the one that contains
+   the meridian opposite the globe's camera, so both views face the same side of the Earth; if the
+   remaining span is then wider than 294 degrees, it is the widest gap. The latitude at the centre
+   line of the map is the camera latitude less 12 degrees, limited to the range from −40 to 50.
+4. Flat map, distance. The camera stands back as far as needed for every key point to be inside
+   the scene area (the space between the side columns, above the timeline) at zoom factor 1 and
+   the default tilt. Room is kept at the edges, in design pixels at the sides, above, and below:
+   0, 12, and 8 for an origin; 16, 40, and 56 for an upstream site; 16, 130, and 56 for the gateway,
+   whose label stands above its marker. The distance is limited so that the scene area shows no
+   less than 80 and no more than 300 degrees of longitude at the depth the camera looks at, and no
+   more than rule OS-M2a allows.
+
+A node that is not a key point can lie outside the scene area or on the far side of the globe; the
+viewer turns or zooms the scene to see it.
 
 OS-M3. An upstream site within 1.5 degrees of the gateway is co-located: it is drawn as a ring
 around the gateway, labelled `同机房上游`, and has no arc. Any other upstream site closer than 7.5
@@ -172,7 +271,7 @@ time range, request count, and error count.
 ## 4. Replay
 
 OS-R1. The range control has four values: `实时`, `24 小时`, `7 天`, `30 天`. The last three open the
-replay of that window.
+replay of that window. OS-D5 says when the first one is disabled or relabelled.
 
 OS-R2. At speed 1 the playhead crosses the window in 60 s; speeds 2 and 4 divide that time. At the
 end the playhead rests for 1.8 s and restarts. Space toggles play and pause.

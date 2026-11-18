@@ -1,4 +1,4 @@
-import type { FlowStatus, LiveEvent, LiveSource, ReplayData, ReplaySource, ReplayWindow, Topology, Viewer } from "./model";
+import type { Capabilities, FlowStatus, LiveEvent, LiveSource, ReplayData, ReplaySource, ReplayWindow, Topology, Viewer } from "./model";
 import { formatSeconds } from "./format";
 import type { AggregateFlow, FlowView, MapNode, Tone, ViewMode } from "./view";
 
@@ -87,6 +87,9 @@ export interface Snapshot {
   window: ReplayWindow;
   view: ViewMode;
   viewer: Viewer;
+  caps: Capabilities;
+  /** True when the newest request for data failed and the screen shows what it had. */
+  stale: boolean;
   /** Time the header shows: now in live mode, the playhead in replay. */
   clock: number;
   playing: boolean;
@@ -156,6 +159,8 @@ export const EMPTY_SNAPSHOT: Snapshot = {
   window: "24h",
   view: "2d",
   viewer: "admin",
+  caps: { live: "realtime", origin: true, errors: true, durationPrecisionMs: 1 },
+  stale: false,
   clock: 0,
   playing: true,
   speed: 1,
@@ -194,10 +199,12 @@ function topRows(counts: Map<string, number>, names: (key: string) => string, li
 export class OpsEngine {
   private snapshot: Snapshot = EMPTY_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
-  private readonly topology: Topology;
+  private topology: Topology;
+  private baseline24h: { total: number; errors: number };
+  private stale = false;
   private readonly originName = new Map<string, string>();
   private readonly siteName = new Map<string, string>();
-  private readonly routeLabel: string[];
+  private routeLabel: string[] = [];
   private readonly flights = new Map<number, Flight>();
   private readonly later: Array<{ t: number; run: (now: number) => void }> = [];
   private starts: number[] = [];
@@ -222,6 +229,7 @@ export class OpsEngine {
   private replayLoading: ReplayWindow | null = null;
   private playhead = 0;
   private replayHold = 0;
+  private replayRetryAt = 0;
   private started = false;
 
   private readonly renderer: FlowView;
@@ -233,6 +241,15 @@ export class OpsEngine {
     this.live = live;
     this.replaySource = replaySource;
     this.topology = live.topology;
+    this.baseline24h = live.baseline24h;
+    this.applyTopology();
+    replaySource.onTopology = (topology, baseline24h) => this.setTopology(topology, baseline24h);
+  }
+
+  /** Rebuilds the name tables and the map nodes from `this.topology`. */
+  private applyTopology() {
+    this.originName.clear();
+    this.siteName.clear();
     for (const origin of this.topology.origins) this.originName.set(origin.id, origin.name);
     for (const site of this.topology.upstreams) this.siteName.set(site.id, site.name);
     this.routeLabel = this.topology.routes.map((route) => `${route.group} · ${route.channel}`);
@@ -241,7 +258,26 @@ export class OpsEngine {
       ...this.topology.upstreams.map<MapNode>((site) => ({ id: `up:${site.id}`, kind: "upstream", lon: site.lon, lat: site.lat, name: site.name, sub: "" })),
       ...this.topology.origins.map<MapNode>((site) => ({ id: `o:${site.id}`, kind: "origin", lon: site.lon, lat: site.lat, name: site.name })),
     ];
-    renderer.setNodes(nodes);
+    this.renderer.setNodes(nodes);
+  }
+
+  /**
+   * Replaces the topology (new Channels, sites, or regions). Everything that is indexed by the old
+   * one is dropped: requests in flight, the live history, and the loaded replay.
+   */
+  setTopology(topology: Topology, baseline24h: { total: number; errors: number }) {
+    this.topology = topology;
+    this.baseline24h = baseline24h;
+    this.flights.clear();
+    this.later.length = 0;
+    this.done = [];
+    this.ticker = [];
+    this.routeLastAt.clear();
+    this.replay = null;
+    this.applyTopology();
+    this.renderer.setAggregateMode(this.mode === "replay");
+    this.lastSnapshot = -1e9;
+    this.lastMeta = -1e9;
   }
 
   subscribe = (listener: () => void) => {
@@ -333,6 +369,7 @@ export class OpsEngine {
   }
 
   setLive() {
+    if (this.live.capabilities.live === "none") return;
     this.mode = "live";
     this.renderer.setAggregateMode(false);
     // Arc holds were cleared by the mode switch; re-register the requests still in flight.
@@ -360,14 +397,36 @@ export class OpsEngine {
       return;
     }
     this.replay = null;
+    // Until the window has loaded the map shows no flows: the figures of the last one are not its own.
+    for (const origin of this.topology.origins) this.renderer.setNodeMeta(`o:${origin.id}`, { value: 0 });
+    for (const site of this.topology.upstreams) this.renderer.setNodeMeta(`up:${site.id}`, { value: 0, health: this.live.capabilities.errors ? 1 : null, sub: "" });
+    this.renderer.setAggregate([]);
+    this.loadReplay(window, true);
+  }
+
+  /** Fetches a window. `rewind` puts the playhead at its start; a refresh keeps the place. */
+  private loadReplay(window: ReplayWindow, rewind: boolean) {
     this.replayLoading = window;
-    void this.replaySource.load(window).then((data) => {
-      if (this.replayLoading !== window) return;
-      this.replay = data;
-      this.playhead = data.start;
-      this.replayLoading = null;
-      this.lastSnapshot = -1e9;
-    });
+    this.replaySource.load(window).then(
+      (data) => {
+        if (this.replayLoading !== window) return;
+        this.replayLoading = null;
+        this.stale = false;
+        const old = this.replay;
+        this.replay = data;
+        if (rewind || !old) this.playhead = data.start;
+        else this.playhead = Math.max(data.start, Math.min(data.end - 1, this.playhead));
+        this.lastSnapshot = -1e9;
+      },
+      () => {
+        if (this.replayLoading !== window) return;
+        this.replayLoading = null;
+        this.stale = true;
+        this.lastSnapshot = -1e9;
+        // Try again later; the screen keeps showing what it has.
+        this.replayRetryAt = this.lastTick + 15_000;
+      },
+    );
   }
 
   togglePlay() {
@@ -419,6 +478,10 @@ export class OpsEngine {
       }
     }
 
+    if (this.mode === "replay" && !this.replay && this.replayLoading === null && this.replayRetryAt > 0 && now >= this.replayRetryAt) {
+      this.replayRetryAt = 0;
+      this.loadReplay(this.window, true);
+    }
     if (this.mode === "replay" && this.replay) {
       const data = this.replay;
       if (this.playing) {
@@ -428,6 +491,8 @@ export class OpsEngine {
           if (this.replayHold > 1800) {
             this.replayHold = 0;
             this.playhead = data.start;
+            // Each pass through the window starts from fresh data.
+            if (this.replayLoading === null) this.loadReplay(data.window, false);
           }
         } else {
           this.playhead = Math.min(data.end - 1, this.playhead + dt * ((data.end - data.start) / (REPLAY_SECONDS * 1000)) * this.speed);
@@ -446,7 +511,10 @@ export class OpsEngine {
 
     if (rel - this.lastSnapshot >= (this.mode === "replay" ? REPLAY_SNAPSHOT_MS : SNAPSHOT_MS)) {
       this.lastSnapshot = rel;
-      this.snapshot = this.mode === "live" || !this.replay ? this.liveSnapshot(now) : this.replaySnapshot(this.replay);
+      if (this.mode === "live") this.snapshot = this.liveSnapshot(now);
+      else if (this.replay) this.snapshot = this.replaySnapshot(this.replay);
+      // A window that is still loading: the panels show their loading state, not live figures.
+      else this.snapshot = { ...EMPTY_SNAPSHOT, mode: "replay", window: this.window, view: this.view, viewer: this.viewer, caps: this.live.capabilities, stale: this.stale, clock: now, playing: this.playing, speed: this.speed };
       for (const listener of this.listeners) listener();
     }
   }
@@ -611,7 +679,7 @@ export class OpsEngine {
       const busy = inflight.get(site.id) ?? 0;
       this.renderer.setNodeMeta(`up:${site.id}`, {
         value: count / maxSite,
-        health: count > 0 ? 1 - (siteErr.get(site.id) ?? 0) / count : 1,
+        health: !this.live.capabilities.errors ? null : count > 0 ? 1 - (siteErr.get(site.id) ?? 0) / count : 1,
         sub: busy > 0 ? `在途 ${busy}` : "",
       });
     }
@@ -694,6 +762,8 @@ export class OpsEngine {
       window: this.window,
       view: this.view,
       viewer: this.viewer,
+      caps: this.live.capabilities,
+      stale: this.stale,
       clock: now,
       playing: true,
       speed: this.speed,
@@ -706,7 +776,7 @@ export class OpsEngine {
         ttfbP50: percentile(ttfbs, 0.5),
         ttfbP95: percentile(ttfbs, 0.95),
         inflight: this.flights.size,
-        total: this.live.baseline24h.total + this.extraTotal,
+        total: this.baseline24h.total + this.extraTotal,
         failover: this.failovers,
       },
       spark: {
@@ -812,7 +882,7 @@ export class OpsEngine {
         scope,
         requests,
         share: sum.total > 0 ? requests / sum.total : 0,
-        okRate: requests > 0 ? 1 - errors / requests : null,
+        okRate: this.live.capabilities.errors && requests > 0 ? 1 - errors / requests : null,
         ttfbP50: kind === "gateway" && sum.ttfbP50 > 0 ? sum.ttfbP50 : null,
         inflight: null,
         models: kind === "gateway" ? sum.models.map((value, i) => ({ key: String(i), name: data.models[i]!, count: value, share: sum.total > 0 ? value / sum.total : 0 })).filter((row) => row.count >= 0.5).sort((a, b) => b.count - a.count).slice(0, 5) : [],
@@ -879,7 +949,7 @@ export class OpsEngine {
       scope: "近 15 分钟",
       requests,
       share: all > 0 ? requests / all : 0,
-      okRate: requests > 0 ? 1 - errors / requests : null,
+      okRate: this.live.capabilities.errors && requests > 0 ? 1 - errors / requests : null,
       ttfbP50: samples.length > 0 ? percentile(samples, 0.5) : null,
       inflight,
       models: topRows(models, (k) => k, 5),
@@ -959,7 +1029,7 @@ export class OpsEngine {
       const level = (count / maxSite) * Math.min(1, (sum.total / scale) * 1.15 + 0.08);
       this.renderer.setNodeMeta(`up:${site.id}`, {
         value: level,
-        health: 1 - errShare,
+        health: this.live.capabilities.errors ? 1 - errShare : null,
         sub: count <= 0 ? "" : count / sum.total < 0.001 ? "占 <0.1%" : `占 ${((count / sum.total) * 100).toFixed(count / sum.total < 0.1 ? 1 : 0)}%`,
       });
       if (count > 0) flows.push({ from: gw, to: `up:${site.id}`, kind: "out", weight: level, errShare });
@@ -980,6 +1050,14 @@ export class OpsEngine {
       peak = Math.max(peak, data.buckets[i]!.total / (data.stepMs / 1000));
     }
     const routes = this.routeRows(sum.routeCount, sum.routeErr, null);
+    // Requests that the source places in no region (OS-SV5) are one row of their own, so the
+    // shares add up to all requests.
+    const placed = sum.origins.reduce((a, b) => a + b, 0);
+    const unplaced = sum.total - placed;
+    const originRows: RankRow[] = sum.origins.map((count, i) => ({ key: String(i), name: this.topology.origins[i]!.name, count, share: sum.total > 0 ? count / sum.total : 0 })).filter((row) => row.count >= 0.5);
+    if (unplaced >= 0.5 && unplaced / Math.max(1, sum.total) >= 0.001) originRows.push({ key: "~none", name: "未归入地区", count: unplaced, share: unplaced / sum.total });
+    originRows.sort((a, b) => b.count - a.count);
+    originRows.length = Math.min(originRows.length, 10);
     const rank = (values: number[], names: (i: number) => string, limit: number): RankRow[] => {
       const total = values.reduce((a, b) => a + b, 0);
       return values
@@ -1005,6 +1083,8 @@ export class OpsEngine {
       window: this.window,
       view: this.view,
       viewer: this.viewer,
+      caps: this.live.capabilities,
+      stale: this.stale,
       clock: this.wholeWindow ? data.end : this.playhead,
       playing: this.playing,
       speed: this.speed,
@@ -1027,7 +1107,7 @@ export class OpsEngine {
       },
       models: rank(sum.models, (i) => data.models[i]!, 10),
       routes,
-      origins: rank(sum.origins, (i) => this.topology.origins[i]!.name, 10),
+      origins: originRows,
       sites: topRows(siteCount, (key) => this.siteName.get(key) ?? key, 6),
       groups: topRows(groupCount, (key) => key, 6),
       ticker: [],

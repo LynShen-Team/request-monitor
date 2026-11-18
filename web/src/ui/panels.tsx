@@ -61,21 +61,36 @@ export function ThroughputPanel({ snap }: { snap: Snapshot }) {
           <em>次 / 秒</em>
         </div>
         <div className="hero-sub num">
-          {live ? `近 30 分钟峰值 ${kpi.rpsPeak.toFixed(1)}` : `窗口内峰值 ${kpi.rpsPeak.toFixed(1)}`} · {live ? `近 24 小时 ${formatCount(kpi.total)} 次` : `累计 ${formatCount(kpi.total)} 次`}
+          {!snap.ready ? " " : live ? `近 30 分钟峰值 ${kpi.rpsPeak.toFixed(1)} · 近 24 小时 ${formatCount(kpi.total)} 次` : `窗口内峰值 ${kpi.rpsPeak.toFixed(1)} · 累计 ${formatCount(kpi.total)} 次`}
         </div>
         <Spark values={spark.rps} floor={0} />
       </div>
       <div className="stats">
         <div className="stat">
           <div className="stat-label">
-            <i className="dot" style={tone(health(ok))} />
+            {snap.ready && snap.caps.errors ? <i className="dot" style={tone(health(ok))} /> : null}
             成功率
           </div>
-          <div className="stat-value">
-            {(ok * 100).toFixed(ok >= 0.9995 ? 0 : 1)}
-            <em>%</em>
-          </div>
-          <div className="stat-sub num">失败 {formatCount(kpi.errors)} 次</div>
+          {!snap.ready ? (
+            // Nothing has loaded: no figure, and above all not "100 %".
+            <>
+              <div className="stat-value">—</div>
+              <div className="stat-sub"> </div>
+            </>
+          ) : snap.caps.errors ? (
+            <>
+              <div className="stat-value">
+                {(ok * 100).toFixed(ok >= 0.9995 ? 0 : 1)}
+                <em>%</em>
+              </div>
+              <div className="stat-sub num">失败 {formatCount(kpi.errors)} 次</div>
+            </>
+          ) : (
+            <>
+              <div className="stat-value">未记录</div>
+              <div className="stat-sub">网关没有记录失败的请求</div>
+            </>
+          )}
         </div>
         <div className="stat">
           <div className="stat-label">首字延迟（中位）</div>
@@ -87,8 +102,8 @@ export function ThroughputPanel({ snap }: { snap: Snapshot }) {
         </div>
         <div className="stat">
           <div className="stat-label">{live ? "进行中" : "时段请求"}</div>
-          <div className="stat-value">{live ? formatCount(kpi.inflight) : formatCompact(kpi.rps * ((snap.range.to - snap.range.from) / 1000))}</div>
-          <div className="stat-sub num">{live ? `换渠道 ${formatCount(kpi.failover)} 次` : "次"}</div>
+          <div className="stat-value">{!snap.ready ? "—" : live ? formatCount(kpi.inflight) : formatCompact(kpi.rps * ((snap.range.to - snap.range.from) / 1000))}</div>
+          <div className="stat-sub num">{!snap.ready ? " " : live ? `换渠道 ${formatCount(kpi.failover)} 次` : "次"}</div>
         </div>
       </div>
     </Card>
@@ -125,10 +140,10 @@ function RankRows({ rows, limit, mono }: { rows: RankRow[]; limit: number; mono?
   );
 }
 
-export function RankPanel({ title, hint, rows, ready, limit, mono }: { title: string; hint: string; rows: RankRow[]; ready: boolean; limit: number; mono?: boolean }) {
+export function RankPanel({ title, hint, rows, ready, limit, mono, missing }: { title: string; hint: string; rows: RankRow[]; ready: boolean; limit: number; mono?: boolean; missing?: string }) {
   return (
     <Card title={title} hint={hint} className="is-grow">
-      <div className="card-body">{ready ? <div className="rows"><RankRows rows={rows} limit={limit} mono={mono} /></div> : <SkeletonRows count={limit} height={30} />}</div>
+      <div className="card-body">{missing ? <div className="empty">{missing}</div> : ready ? <div className="rows"><RankRows rows={rows} limit={limit} mono={mono} /></div> : <SkeletonRows count={limit} height={30} />}</div>
     </Card>
   );
 }
@@ -171,10 +186,12 @@ export function RoutePanel({ snap }: { snap: Snapshot }) {
                     <div className="bar">
                       <i style={{ width: `${Math.max(1, (row.share / top) * 100)}%` }} />
                     </div>
-                    <span>
-                      {row.okRate < 0.97 ? <i className="dot" style={tone(health(row.okRate))} /> : null}
-                      成功 <b>{percent(row.okRate, 1)}</b>
-                    </span>
+                    {snap.caps.errors ? (
+                      <span>
+                        {row.okRate < 0.97 ? <i className="dot" style={tone(health(row.okRate))} /> : null}
+                        成功 <b>{percent(row.okRate, 1)}</b>
+                      </span>
+                    ) : null}
                     {row.ttfbP50 > 0 ? (
                       <span>
                         首字 <b>{formatSeconds(row.ttfbP50)}</b>
@@ -232,14 +249,14 @@ export function SummaryPanel({ snap }: { snap: Snapshot }) {
       <div className="facts">
         <div className="stat">
           <div className="stat-label">请求</div>
-          <div className="stat-value">{formatCount(requests)}</div>
+          <div className="stat-value">{snap.ready ? formatCount(requests) : "—"}</div>
         </div>
         <div className="stat">
           <div className="stat-label">
-            <i className="dot" style={tone(health(snap.kpi.successRate))} />
+            {snap.ready && snap.caps.errors ? <i className="dot" style={tone(health(snap.kpi.successRate))} /> : null}
             失败
           </div>
-          <div className="stat-value">{formatCount(snap.kpi.errors)}</div>
+          <div className="stat-value">{!snap.ready ? "—" : snap.caps.errors ? formatCount(snap.kpi.errors) : "未记录"}</div>
         </div>
       </div>
       <div className="card-body">
@@ -254,7 +271,7 @@ export function SummaryPanel({ snap }: { snap: Snapshot }) {
   );
 }
 
-export function Legend({ live, attribution }: { live: boolean; attribution?: { text: string; url?: string } }) {
+export function Legend({ live, errors, attribution }: { live: boolean; errors: boolean; attribution?: { text: string; url?: string } }) {
   return (
     <div className="legend">
       <span>
@@ -271,10 +288,12 @@ export function Legend({ live, attribution }: { live: boolean; attribution?: { t
           成功回传
         </span>
       ) : null}
-      <span>
-        <i style={tone("var(--err)")} />
-        失败
-      </span>
+      {errors ? (
+        <span>
+          <i style={tone("var(--err)")} />
+          失败
+        </span>
+      ) : null}
       {live ? (
         <span>
           <i style={tone("var(--warn)")} />

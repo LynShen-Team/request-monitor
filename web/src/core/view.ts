@@ -28,7 +28,8 @@ export interface NodeMeta {
   /** 0..1 relative volume; drives the beam height. */
   value?: number;
   /** 0..1 success rate; drives the colour of an upstream. */
-  health?: number;
+  /** Success share of an upstream site, 0..1; null when the source records no failures. */
+  health?: number | null;
   sub?: string;
 }
 

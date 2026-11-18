@@ -1,4 +1,4 @@
-import type { FlowStatus, LiveEvent, LiveSource, ReplayBucket, ReplayData, ReplaySource, ReplayWindow, Site, Topology } from "../core/model";
+import type { Capabilities, FlowStatus, LiveEvent, LiveSource, ReplayBucket, ReplayData, ReplaySource, ReplayWindow, Site, Topology } from "../core/model";
 
 /**
  * Preview data source. Everything it shows is synthetic: the gateway, Groups, Channels, traffic
@@ -271,6 +271,7 @@ const UPSTREAM_ERRORS = ["upstream_error", "upstream_error", "upstream_error", "
  */
 export class PreviewLive implements LiveSource {
   readonly topology: Topology;
+  readonly capabilities: Capabilities = { live: "realtime", origin: true, errors: true, durationPrecisionMs: 1 };
   readonly baseline24h: { total: number; errors: number };
   private readonly random: () => number;
   private readonly queue: Pending[] = [];

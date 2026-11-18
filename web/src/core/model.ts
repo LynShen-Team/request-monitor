@@ -56,8 +56,20 @@ export type LiveEvent =
   | { type: "ttfb"; id: number; t: number; ttfbMs: number }
   | { type: "end"; id: number; t: number; status: FlowStatus; ttfbMs: number | null; durationMs: number; errorCode?: string };
 
+/** What the gateway records, so that the page can say what is missing instead of showing a guess. */
+export interface Capabilities {
+  /** `realtime`: events arrive as they happen. `replayed`: a request is shown after it ended. `none`: no live mode. */
+  live: "none" | "replayed" | "realtime";
+  /** False when requests carry no user region. */
+  origin: boolean;
+  /** False when the gateway does not log failed requests, so no success rate exists. */
+  errors: boolean;
+  durationPrecisionMs: number;
+}
+
 export interface LiveSource {
   readonly topology: Topology;
+  readonly capabilities: Capabilities;
   /** Requests of the 24 hours before the screen opened; the live counter adds to it. */
   readonly baseline24h: { total: number; errors: number };
   /** Every event with `t <= now` not returned before, in time order. The first call returns warm-up history. */
@@ -87,5 +99,11 @@ export interface ReplayData {
 }
 
 export interface ReplaySource {
+  /** Rejects when the data cannot be fetched; the screen then keeps what it has. */
   load(window: ReplayWindow): Promise<ReplayData>;
+  /**
+   * Set by the screen. A source whose topology can change calls it before `load` resolves with data
+   * that is indexed by a newer topology.
+   */
+  onTopology?: (topology: Topology, baseline24h: { total: number; errors: number }) => void;
 }

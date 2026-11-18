@@ -117,6 +117,9 @@ body,
 .lb-major[data-tone="in"] {
   --tone: var(--accent);
 }
+.lb-major[data-tone="out"] {
+  --tone: var(--accent-2);
+}
 .lb-major[data-tone="gone"] {
   --tone: var(--warn);
 }
@@ -265,6 +268,10 @@ body,
 }
 .seg button:hover {
   color: var(--text);
+}
+.seg button:disabled {
+  color: var(--text-3);
+  cursor: default;
 }
 .seg button[aria-pressed="true"] {
   color: var(--text);
@@ -936,6 +943,28 @@ body,
   font-size: calc(11 * var(--px));
   color: var(--text-3);
 }
+/* What a list shows when its data does not exist at the source. */
+.empty {
+  margin: auto 0;
+  font-size: calc(12.5 * var(--px));
+  color: var(--text-2);
+  text-align: center;
+}
+/* One line above the timeline about the state of the data. */
+.notice {
+  position: absolute;
+  left: 50%;
+  bottom: calc(184 * var(--px));
+  transform: translateX(-50%);
+  padding: calc(5 * var(--px)) calc(12 * var(--px));
+  border-radius: calc(8 * var(--px));
+  border: 1px solid var(--line);
+  background: var(--panel-solid);
+  font-size: calc(12 * var(--px));
+  color: var(--text-2);
+  white-space: nowrap;
+  z-index: 3;
+}
 .boot {
   position: absolute;
   inset: 0;
@@ -944,6 +973,13 @@ body,
   font-size: calc(12.5 * var(--px));
   color: var(--text-3);
   pointer-events: none;
+}
+.boot.is-failed {
+  pointer-events: auto;
+  align-content: center;
+  gap: calc(12 * var(--px));
+  justify-items: center;
+  color: var(--text-2);
 }
 .ops.is-manual *,
 .ops.is-manual *::before {
