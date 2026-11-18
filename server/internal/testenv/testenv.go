@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"request-monitor/internal/devseed"
-	"request-monitor/internal/gateway/lynshen"
-	"request-monitor/internal/geo"
-	"request-monitor/internal/ingest"
-	"request-monitor/internal/screen"
-	"request-monitor/internal/store"
-	"request-monitor/internal/upstream"
+	"github.com/LynShen-Team/request-monitor/internal/devseed"
+	"github.com/LynShen-Team/request-monitor/internal/gateway/lynshen"
+	"github.com/LynShen-Team/request-monitor/internal/geo"
+	"github.com/LynShen-Team/request-monitor/internal/ingest"
+	"github.com/LynShen-Team/request-monitor/internal/screen"
+	"github.com/LynShen-Team/request-monitor/internal/store"
+	"github.com/LynShen-Team/request-monitor/internal/upstream"
 
-	"request-monitor/internal/config"
+	"github.com/LynShen-Team/request-monitor/internal/config"
 )
 
 // Now is the fixed present of every test environment.

@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"request-monitor/internal/api"
-	"request-monitor/internal/config"
-	"request-monitor/internal/devseed"
-	"request-monitor/internal/gateway/lynshen"
-	"request-monitor/internal/identity"
-	"request-monitor/internal/screen"
-	"request-monitor/internal/testenv"
-	"request-monitor/internal/webui"
+	"github.com/LynShen-Team/request-monitor/internal/api"
+	"github.com/LynShen-Team/request-monitor/internal/config"
+	"github.com/LynShen-Team/request-monitor/internal/devseed"
+	"github.com/LynShen-Team/request-monitor/internal/gateway/lynshen"
+	"github.com/LynShen-Team/request-monitor/internal/identity"
+	"github.com/LynShen-Team/request-monitor/internal/screen"
+	"github.com/LynShen-Team/request-monitor/internal/testenv"
+	"github.com/LynShen-Team/request-monitor/internal/webui"
 )
 
 func TestLiveEndpoint(t *testing.T) {

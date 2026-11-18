@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"request-monitor/internal/api"
-	"request-monitor/internal/config"
-	"request-monitor/internal/devseed"
-	"request-monitor/internal/testenv"
-	"request-monitor/internal/webui"
+	"github.com/LynShen-Team/request-monitor/internal/api"
+	"github.com/LynShen-Team/request-monitor/internal/config"
+	"github.com/LynShen-Team/request-monitor/internal/devseed"
+	"github.com/LynShen-Team/request-monitor/internal/testenv"
+	"github.com/LynShen-Team/request-monitor/internal/webui"
 )
 
 func server(env *testenv.Env, cfg *config.Config) *api.Server {

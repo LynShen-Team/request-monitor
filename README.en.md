@@ -55,6 +55,11 @@ A new gateway needs one adapter (`server/internal/gateway`); section 2 of [`docs
 
 ## Quick start
 
+```bash
+git clone https://github.com/LynShen-Team/request-monitor.git
+cd request-monitor
+```
+
 ### 1. The preview (no gateway needed)
 
 Needs [Bun](https://bun.sh). The preview generates synthetic data in the browser and sends no network request.

@@ -19,10 +19,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/geo"
-	"request-monitor/internal/hist"
-	"request-monitor/internal/store"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/geo"
+	"github.com/LynShen-Team/request-monitor/internal/hist"
+	"github.com/LynShen-Team/request-monitor/internal/store"
 )
 
 // Options tune the ingestor.

@@ -53,6 +53,11 @@ Request Monitor 是给 LLM API 网关用的请求调度监控。它把网关的�
 
 ## 快速开始
 
+```bash
+git clone https://github.com/LynShen-Team/request-monitor.git
+cd request-monitor
+```
+
 ### 1. 先看预览（不需要网关）
 
 需要 [Bun](https://bun.sh)。预览用浏览器里现生成的合成数据，不发任何网络请求。

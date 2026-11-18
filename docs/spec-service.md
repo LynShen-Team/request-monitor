@@ -107,7 +107,7 @@ before the rename that are still accepted:
 | Identifier | Name | Still accepted |
 | --- | --- | --- |
 | Executable, command directory | `request-monitor`, `server/cmd/request-monitor` | - |
-| Go module | `request-monitor` | - |
+| Go module | `github.com/LynShen-Team/request-monitor` | - |
 | Gateway DSN (OS-SC1) | `REQUEST_MONITOR_GATEWAY_DSN` | `OPSSCREEN_GATEWAY_DSN` |
 | Listen address (OS-SC1) | `REQUEST_MONITOR_LISTEN` | `OPSSCREEN_LISTEN` |
 | Test database (OS-ST2) | `REQUEST_MONITOR_TEST_PG_DSN` | `OPSSCREEN_TEST_PG_DSN` |

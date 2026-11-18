@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"request-monitor/internal/config"
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/geo"
-	"request-monitor/internal/store"
+	"github.com/LynShen-Team/request-monitor/internal/config"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/geo"
+	"github.com/LynShen-Team/request-monitor/internal/store"
 )
 
 // Locator assigns an upstream site to every route.

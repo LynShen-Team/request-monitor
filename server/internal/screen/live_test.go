@@ -14,10 +14,10 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"request-monitor/internal/devseed"
-	"request-monitor/internal/screen"
-	"request-monitor/internal/store"
-	"request-monitor/internal/testenv"
+	"github.com/LynShen-Team/request-monitor/internal/devseed"
+	"github.com/LynShen-Team/request-monitor/internal/screen"
+	"github.com/LynShen-Team/request-monitor/internal/store"
+	"github.com/LynShen-Team/request-monitor/internal/testenv"
 )
 
 // liveEvent is any event of web/src/core/model.ts.

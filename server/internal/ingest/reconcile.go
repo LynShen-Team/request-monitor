@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/store"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/store"
 )
 
 // countingAdapter is a gateway that can count its own requests per bucket, Channel, and status.

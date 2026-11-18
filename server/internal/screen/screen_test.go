@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"request-monitor/internal/devseed"
-	"request-monitor/internal/ingest"
-	"request-monitor/internal/screen"
-	"request-monitor/internal/store"
-	"request-monitor/internal/testenv"
+	"github.com/LynShen-Team/request-monitor/internal/devseed"
+	"github.com/LynShen-Team/request-monitor/internal/ingest"
+	"github.com/LynShen-Team/request-monitor/internal/screen"
+	"github.com/LynShen-Team/request-monitor/internal/store"
+	"github.com/LynShen-Team/request-monitor/internal/testenv"
 )
 
 // Strings that must never be in the store or in an answer: client addresses, upstream hosts, and

@@ -10,9 +10,9 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/gateway/lynshen"
-	"request-monitor/internal/testenv"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/gateway/lynshen"
+	"github.com/LynShen-Team/request-monitor/internal/testenv"
 )
 
 func TestLiveRequestsOnDemoFile(t *testing.T) {

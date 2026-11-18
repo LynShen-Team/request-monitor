@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"request-monitor/internal/gateway/lynshen"
-	"request-monitor/internal/identity"
+	"github.com/LynShen-Team/request-monitor/internal/gateway/lynshen"
+	"github.com/LynShen-Team/request-monitor/internal/identity"
 )
 
 // fakeGateway stands in for the gateway's GET /api/dashboard/auth/me.

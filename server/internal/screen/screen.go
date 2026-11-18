@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/hist"
-	"request-monitor/internal/store"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/hist"
+	"github.com/LynShen-Team/request-monitor/internal/store"
 )
 
 // Windows of the replay (spec OS-D4): fine buckets per step, and steps per window.

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/geo"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/geo"
 )
 
 func open(t *testing.T) *Store {

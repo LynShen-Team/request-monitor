@@ -19,9 +19,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/geo"
-	"request-monitor/internal/hist"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/geo"
+	"github.com/LynShen-Team/request-monitor/internal/hist"
 )
 
 // FileName is the store's file in the data directory (spec OS-SS1). LegacyFileName is the name it

@@ -12,11 +12,11 @@ import (
 	"path"
 	"strings"
 
-	"request-monitor/internal/config"
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/geo"
-	"request-monitor/internal/identity"
-	"request-monitor/internal/screen"
+	"github.com/LynShen-Team/request-monitor/internal/config"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/geo"
+	"github.com/LynShen-Team/request-monitor/internal/identity"
+	"github.com/LynShen-Team/request-monitor/internal/screen"
 )
 
 // Server serves the screen.

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"request-monitor/internal/identity"
+	"github.com/LynShen-Team/request-monitor/internal/identity"
 )
 
 // sessionCookie is the cookie the gateway sets for the parent domain of its public origin

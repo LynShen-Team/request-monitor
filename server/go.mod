@@ -1,4 +1,4 @@
-module request-monitor
+module github.com/LynShen-Team/request-monitor
 
 go 1.26.0
 

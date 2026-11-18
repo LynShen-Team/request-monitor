@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"request-monitor/internal/gateway"
-	"request-monitor/internal/geo"
-	"request-monitor/internal/store"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/geo"
+	"github.com/LynShen-Team/request-monitor/internal/store"
 )
 
 // Live mode by replay (spec section 13): the gateway writes a request's row when the request has

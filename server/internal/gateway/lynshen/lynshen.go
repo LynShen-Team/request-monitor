@@ -16,7 +16,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
-	"request-monitor/internal/gateway"
+	"github.com/LynShen-Team/request-monitor/internal/gateway"
 )
 
 // Adapter implements gateway.Adapter for LynShen.
