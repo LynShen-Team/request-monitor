@@ -9,13 +9,15 @@ real deployment.
 
 OS-S0. Implemented in `server/`: the store (section 4), the ingest of history (section 5), the
 LynShen adapter for history (section 3), regions and the distinct-client rule (section 6), upstream
-places (section 7), the views with the restricted merge (section 8), and the HTTP API (section 9).
+places (section 7), the views with the restricted merge (section 8), the HTTP API (section 9), and
+identification with the guest setting (section 12).
 
-OS-S0a. Not implemented: identification (OS-B6; every visitor is `guest`, see OS-SH3), live events
-(OS-B2a, OS-B2b), the sub2api and new-api adapters, and the deployment rules OS-B6.6 and OS-B7.
+OS-S0a. Not implemented: live events (OS-B2a, OS-B2b), the sub2api and new-api adapters, and
+the deployment rule OS-B7.
 
 OS-S0b. The LynShen adapter has been run against a local PostgreSQL with synthetic rows only. It
-has not been run against a real gateway database.
+has not been run against a real gateway database. Identification has been run against a stand-in
+for the gateway's `GET /api/dashboard/auth/me`, not against a real gateway.
 
 ## 1. Decided rules
 
@@ -269,7 +271,7 @@ OS-SH2. Endpoints:
 
 | Path | Answer |
 | --- | --- |
-| `/api/identity` | `{ "role": "admin" \| "user" \| "guest" }` (`web/src/core/identity.ts`) |
+| `/api/identity` | `{ "role": "admin" \| "user" \| "guest", "allowed": boolean, "loginUrl"?: string }` (OS-SN5; `role` as in `web/src/core/identity.ts`) |
 | `/api/config` | a `ScreenConfig` (`web/src/core/config.ts`): `title`, and when set `logo`, `note`, `attribution` |
 | `/api/meta` | `{ "gateway": string, "capabilities": Capabilities, "minClients": number, "backfilling": boolean }` |
 | `/api/topology` | `{ "version": string, "topology": Topology, "baseline24h": { "total", "errors" } }` |
@@ -280,13 +282,15 @@ OS-SH2. Endpoints:
 "durationPrecisionMs": number }` (OS-SA4). `backfilling` is true while OS-SI2 has not finished, so
 older parts of a replay may still be empty.
 
-OS-SH3. Until OS-B6 is built, `/api/identity` answers `guest` and every answer is the restricted
-view. The setting `dev.viewer = "admin"` makes every visitor an admin; the service refuses to
-start with it unless it listens on a loopback address. Nothing that a browser sends can change
-the role.
+OS-SH3. Every `/api/` answer is made for the role that section 12 gives the visitor. The setting
+`dev.viewer = "admin"` skips identification and makes every visitor an admin who may open the
+screen; the service refuses to start with it unless it listens on a loopback address.
 
-OS-SH4. `version` names the topology that the indices of an answer refer to. `/api/topology` and
-`/api/replay` of the same moment carry the same `version`. When a replay answer carries another
+OS-SH4. `version` names the topology that the indices of an answer refer to. It is a hash of the
+topology that this visitor receives, so the admin view and the restricted view carry different
+versions whenever they differ, and a visitor whose role changes (signs in, or the session ends)
+receives another `version` with the next answer. `/api/topology` and `/api/replay` of the same
+moment and the same role carry the same `version`. When a replay answer carries another
 `version` than the topology the page holds, the page MUST fetch the topology again before it uses
 the answer.
 
@@ -311,6 +315,11 @@ unknown key is an error. The gateway DSN may be given in the environment variabl
 
 OS-SC2. The service listens on `127.0.0.1:8787` unless configured otherwise.
 
+OS-SC3. `gateway.api_url` is the base URL of the gateway's own HTTP API, used for identification
+only. `access.guests` (default `true`) and `access.login_url` are the guest setting of OS-SN5.
+`access.guests = false` without `gateway.api_url` is an error, because nobody could open the
+screen.
+
 ## 11. Verification
 
 OS-ST1. `go test ./...` in `server/` covers: the histogram; the store's replace-range and
@@ -328,3 +337,48 @@ OS-ST2. The tests of the LynShen adapter run on a SQLite file by default, and on
 OS-ST3. `opsscreen devseed` writes a demo: a file with the three tables of OS-SL1 filled with
 invented requests, a network table that places the invented client addresses, and a
 configuration. Every name and number in it is invented.
+
+## 12. Identification and access
+
+OS-SN1. The service identifies the visitor on every `/api/` request: it takes the gateway
+credential from the request, asks the gateway whose it is, and maps the answer to `admin`, `user`,
+or `guest` (OS-B6). Nothing else of the request is read for this: no query parameter, no other
+header, no body. The page cannot state its own role.
+
+OS-SN2. LynShen. The credential is the value of the cookie `monoize_session`, or else the token of
+an `Authorization: Bearer` header. A value that is empty, longer than 512 bytes, or has a byte
+outside `A-Z a-z 0-9 . _ ~ + / = -` is no credential. The service asks
+`GET <gateway.api_url>/api/dashboard/auth/me` with the header `Authorization: Bearer <credential>`.
+The answer `200` with a JSON object whose `role` is `admin` or `super_admin` is `admin`; `200` with
+any other non-empty `role` is `user`; everything else is `guest`: no credential, `401`, `403`, any
+other status, a redirect (it is not followed), a body that is not such an object, a network
+error, or no answer within 3 s. The service MUST NOT fall back to `admin` or `user`.
+
+OS-SN3. Without `gateway.api_url` the service asks no gateway and every visitor is `guest`.
+
+OS-SN4. The answer for a credential is kept for at most 60 s when the gateway gave one (`200`,
+`401`, `403`), and for 5 s when it gave none, so that a gateway that is down is not asked on every
+request. The key of the cache is the SHA-256 of the credential. Requests that arrive with the same
+credential at the same time share one question to the gateway. The cache holds at most 10 000
+entries.
+
+OS-SN5. Guest setting (OS-B6.6). With `access.guests = false` a `guest` cannot open the screen:
+`/api/identity` answers `{ "role": "guest", "allowed": false, "loginUrl": "<access.login_url>" }`
+(`loginUrl` is left out when it is not configured), and every other `/api/` endpoint except
+`/api/config` answers `401 { "error": "login_required" }`. For every visitor who may open the
+screen `/api/identity` carries `"allowed": true`. The page files and `/api/config` are served to
+everyone; they hold no data of the gateway.
+
+OS-SN6. A `user` may open the screen whatever the guest setting, and receives the restricted view.
+
+OS-SN7. The service sends a credential to `gateway.api_url` only, which comes from the
+configuration and never from a request. It uses no HTTP proxy for that request and follows no
+redirect. It keeps a credential in memory for the duration of the request only, and writes it to
+no log and no store.
+
+OS-SN8. Every `/api/` answer carries `Vary: Cookie, Authorization` and
+`Cross-Origin-Resource-Policy: same-origin`. The service sends no CORS header, so a page of
+another origin cannot read an answer.
+
+OS-SN9. Because the service receives the session credentials of its visitors, administrators
+included, it MUST run on infrastructure that is trusted like the gateway itself.
