@@ -87,6 +87,15 @@ export function paintLand(polygons: LandPolygons, width: number, height: number)
       ctx.beginPath();
       for (const ring of shape.rings) {
         ring.forEach((p, i) => (i === 0 ? ctx.moveTo(x(p[0]), y(p[1])) : ctx.lineTo(x(p[0]), y(p[1]))));
+        // A ring around a pole (Antarctica) ends one world east or west of where it starts. It is
+        // closed along the pole, so the polar cap is land too, as the globe shows when turned south.
+        const first = ring[0]!;
+        const last = ring[ring.length - 1]!;
+        if (Math.abs(last[0] - first[0]) > 180) {
+          const pole = ring.reduce((sum, p) => sum + p[1], 0) < 0 ? -90 : 90;
+          ctx.lineTo(x(last[0]), y(pole));
+          ctx.lineTo(x(first[0]), y(pole));
+        }
         ctx.closePath();
       }
       ctx.fill("evenodd");

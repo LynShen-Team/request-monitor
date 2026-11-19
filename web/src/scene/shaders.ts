@@ -181,6 +181,7 @@ uniform vec3 uFocus;
 uniform float uMorph;
 uniform float uLight;
 uniform float uShade;
+uniform vec2 uEnds;
 varying vec2 vUv;
 varying vec3 vN;
 varying vec3 vV;
@@ -209,9 +210,12 @@ void main() {
   float lit = smoothstep(-0.35, 0.85, dot(vN, normalize(vec3(-0.45, 0.55, 0.7))));
   col *= 1.0 - uShade * (1.0 - lit) * globe;
   // The globe is opaque. On the map the sea is clear, far land fades out, and the far south is cut.
+  // The east and west ends of the mesh fade out too, so a camera turned to look along the map
+  // does not see where it ends.
   float far = smoothstep(2.9, 1.5, length(vFlat - uFocus));
   float south = smoothstep(0.1, 0.19, vUv.y);
-  float sheet = far * south * max(max(land * mix(0.72, 0.96, uLight), line), grat * mix(0.3, 0.45, uLight));
+  float ends = 1.0 - smoothstep(uEnds.x - uEnds.y, uEnds.x, abs(vFlat.x));
+  float sheet = far * south * ends * max(max(land * mix(0.72, 0.96, uLight), line), grat * mix(0.3, 0.45, uLight));
   gl_FragColor = vec4(col, mix(1.0, sheet, uMorph));
 }
 `;

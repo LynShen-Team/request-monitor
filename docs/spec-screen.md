@@ -197,14 +197,16 @@ so that live mode has its history whenever it is selected. Its reader is `web/sr
 
 OS-M1. The scene has three node kinds: one gateway, upstream sites, and origins (user regions).
 Land is drawn from the Natural Earth 1:50m coastline as a filled shape with a coastline stroke.
+Antarctica is filled up to the South Pole, which the globe shows when it is tilted south (OS-M2c).
 The scene MUST NOT draw a country or province border. A graticule every 15 degrees is drawn as a
 dashed line (2.5 degrees on, 2.5 off) in both views.
 
 OS-M2. Two views show the same scene in WebGL: `3d`, a globe, and `2d`, a flat Miller map seen
 from above at an angle. The surface, every node, arc, and comet has a position in both views. A
 view switch blends the positions for 1500 ms; arcs, comets, and labels fade out during the first
-half and in during the second. The flat map continues 90 degrees past its east and west edges, so
-no edge of the map is visible. A pointer drag turns the globe or swings the camera over the map.
+half and in during the second. The flat map continues 90 degrees past its east and west edges and
+fades out over the last 30 degrees of that, so no edge of the map is visible from any side. A
+pointer drag turns the globe or swings the camera over the map (OS-M2c).
 
 OS-M2a. Zoom changes the camera distance by a factor from 0.6 to 1.7. A wheel event over the
 scene, a wheel event with the control key anywhere on the page (a trackpad pinch), and a WebKit
@@ -243,6 +245,30 @@ topology changes, and the fit of rule 4 also when the page is resized.
 
 A node that is not a key point can lie outside the scene area or on the far side of the globe; the
 viewer turns or zooms the scene to see it.
+
+OS-M2c. Turning (`web/src/scene/orbit.ts`). The frame of OS-M2b is where a drag starts from.
+
+1. A horizontal drag turns the globe about its axis by 0.2 degrees per pixel, or swings the flat
+   camera around the point it looks at by 0.16 degrees per pixel. Neither has a limit: both go all
+   the way round, as often as the viewer drags. The angle is kept from −180 to 180 degrees, so it
+   does not grow, and a whole turn brings the view back to where it was.
+2. A vertical drag tilts. On the globe it moves the camera latitude by 0.16 degrees per pixel, and
+   the camera latitude (the frame's plus the drag) stays from −75 to 75 degrees, so the camera never
+   passes over a pole; a drag past the limit is not stored. Over the flat map the camera's tilt
+   stays from 26 to 80 degrees above the map.
+3. The scene drifts slowly by itself and the drift adds to the drag: on the globe by up to 7 degrees
+   of longitude and 2.2 degrees of latitude, over the map by up to 5 degrees of turn.
+4. Each view keeps its own turn while the other is shown. During a view switch the horizontal turn
+   of the view being left winds back to zero and that of the view being entered winds out from
+   zero, so a switch from a turned view swings round no faster than one from the default views and
+   the camera does not jump over the scene from the far side. Nothing else turns the scene back: a
+   turn stays until the viewer drags it back or opens the page again.
+5. From any side, only what faces the camera is drawn: on the globe a node, its label, its rings,
+   and pulses fade out over the limb, arcs pass behind the Earth, and a comet head hides there; over
+   the map a node behind the camera is not shown. Only a node that is shown is a pointer target
+   (OS-I1), and the hover tooltip and focus rings follow the same rule. Labels are placed on
+   screen, beside their node, from any side. The globe's shading on the `day` theme comes from the
+   upper left of the screen, not from a place on Earth, so the far side is lit the same way.
 
 OS-M3. An upstream site within 1.5 degrees of the gateway is co-located: it is drawn as a ring
 around the gateway, labelled `同机房上游`, and has no arc. Any other upstream site closer than 7.5

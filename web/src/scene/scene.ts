@@ -13,7 +13,8 @@ import {
   SURFACE_FRAGMENT,
   SURFACE_VERTEX,
 } from "./shaders";
-import { FLAT_CENTRE_Y, FLAT_PITCH, FLAT_S, FLAT_TARGET_Z, FOV, START_FRAME, fitFlat, frameFor, type FlatFit, type Frame, type FramePoint } from "./frame";
+import { FLAT_CENTRE_Y, FLAT_S, FLAT_TARGET_Z, FOV, START_FRAME, fitFlat, frameFor, type FlatFit, type Frame, type FramePoint } from "./frame";
+import { START_TURN, globeLat, swingFlat, turnGlobe, turnsAt, type Turn } from "./orbit";
 import type { Theme } from "./theme";
 
 // Colours are authored in sRGB and blended as such, so a hex value looks the same here and in CSS.
@@ -28,6 +29,8 @@ export interface SafeRect {
 
 /** The map's mesh reaches this many degrees past its east and west edges. */
 const MESH_EXTRA = 90;
+/** Over this many degrees before its east and west ends the map fades out. */
+const END_FADE = 30;
 const MAX_ZOOM = 1.7;
 const MORPH_MS = 1500;
 const MAX_ARCS = 224;
@@ -175,10 +178,8 @@ export class Scene3D implements FlowView {
   private morph = 0;
   private lastNow = 0;
   private aggregate = false;
-  private orbitLon = 0;
-  private orbitLat = 0;
-  private yaw = 0;
-  private pitch = FLAT_PITCH;
+  /** What pointer drags have turned, in both views (see `orbit.ts`). */
+  private turn: Turn = START_TURN;
   private zoomFactor = 1;
   private frame: Frame = START_FRAME;
   /** The nodes both views must show, and how far back the flat camera stands to show them. */
@@ -298,6 +299,9 @@ export class Scene3D implements FlowView {
           uMorph: this.uMorph,
           uLight: this.uLight,
           uShade: { value: 0 },
+          // Half the width of the map's mesh, and the width over which it fades out before it ends
+          // (world units).
+          uEnds: { value: new THREE.Vector2((180 + MESH_EXTRA) * DEG * FLAT_S, END_FADE * DEG * FLAT_S) },
         },
         vertexShader: SURFACE_VERTEX,
         fragmentShader: SURFACE_FRAGMENT,
@@ -619,15 +623,17 @@ export class Scene3D implements FlowView {
     this.viewSwitchAt = -1e9;
   }
 
-  /** Pointer drag in CSS pixels: turns the globe, or swings the camera over the flat map. */
+  /**
+   * Pointer drag in CSS pixels: turns the globe, or swings the camera over the flat map. Either
+   * goes all the way round; the tilt is limited (OS-M2c).
+   */
   orbit(dx: number, dy: number) {
-    if (this.view === "3d") {
-      this.orbitLon = Math.max(-150, Math.min(150, this.orbitLon - dx * 0.2));
-      this.orbitLat = Math.max(-45, Math.min(50, this.orbitLat + dy * 0.16));
-    } else {
-      this.yaw = Math.max(-42, Math.min(42, this.yaw - dx * 0.16));
-      this.pitch = Math.max(26, Math.min(80, this.pitch + dy * 0.16));
-    }
+    this.turn = this.view === "3d" ? turnGlobe(this.turn, dx, dy, this.frame.camLat) : swingFlat(this.turn, dx, dy);
+  }
+
+  /** What drags have turned (read by the browser checks). */
+  getTurn(): Turn {
+    return this.turn;
   }
 
   zoom(delta: number) {
@@ -1068,10 +1074,13 @@ export class Scene3D implements FlowView {
     const tanHalf = Math.tan((FOV * DEG) / 2);
     const zf = Math.min(this.zoomFactor, MAX_ZOOM + (Math.min(MAX_ZOOM, this.flat.maxZoom) - MAX_ZOOM) * m);
     const distance = (1 / Math.sin(Math.atan((radiusPx / (this.height / 2)) * tanHalf))) * zf;
-    globePoint(this.frame.camLon + this.orbitLon + Math.sin(now / 23000) * 7, this.frame.camLat + this.orbitLat + Math.sin(now / 31000) * 2.2, this.camGlobe, distance);
+    // The drag's turn, plus a slow drift; during a view switch the turn of the view being left
+    // winds back, so the camera does not cross the scene when the far side was on screen.
+    const turns = turnsAt(this.turn, m);
+    globePoint(this.frame.camLon + turns.lon + Math.sin(now / 23000) * 7, globeLat(this.frame.camLat, this.turn.lat) + Math.sin(now / 31000) * 2.2, this.camGlobe, distance);
     const reach = this.flat.reach * zf;
-    const yaw = (this.yaw + Math.sin(now / 27000) * 5) * DEG;
-    const pitch = this.pitch * DEG;
+    const yaw = (turns.yaw + Math.sin(now / 27000) * 5) * DEG;
+    const pitch = this.turn.pitch * DEG;
     this.camTarget.set(0, 0, FLAT_TARGET_Z);
     this.camFlat.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(reach).add(this.camTarget);
     this.camera.position.copy(this.camGlobe).lerp(this.camFlat, m);
@@ -1099,10 +1108,13 @@ export class Scene3D implements FlowView {
       node.pos.copy(node.g).lerp(node.f, m);
       node.up.copy(node.n).lerp(UP, m).normalize();
       const facing = node.n.dot(this.tmpA.copy(camPos).sub(node.g).normalize());
-      node.facing = (Math.min(1, Math.max(0, (facing - 0.02) / 0.22)) * (1 - m) + m) * fade;
       this.tmpA.copy(node.pos).project(this.camera);
       node.sx = (this.tmpA.x * 0.5 + 0.5) * this.width;
       node.sy = (-this.tmpA.y * 0.5 + 0.5) * this.height;
+      // A point behind the camera (the flat camera turned toward the map's end) projects to a
+      // mirrored place on the canvas: such a node is not shown and is no pointer target.
+      const ahead = this.tmpA.z < 1;
+      node.facing = ahead ? (Math.min(1, Math.max(0, (facing - 0.02) / 0.22)) * (1 - m) + m) * fade : 0;
 
       const kind = node.def.kind;
       const tone: Tone = kind === "upstream" ? siteTone(node.health) : "in";
