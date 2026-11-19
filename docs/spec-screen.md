@@ -407,8 +407,8 @@ second); the panels carry no decorative frame, index number, or uppercase label.
 OS-U3. With `?clock=manual` the page does not start its animation loop;
 `window.__requestMonitor.advance(ms)` advances the screen clock and draws one frame.
 
-OS-U4. All copy is Simplified Chinese. The default title is the product name `Request Monitor`
-(OS-U5).
+OS-U4. All copy is Simplified Chinese, except the figures of the embed page (OS-E1). The default
+title is the product name `Request Monitor` (OS-U5).
 
 OS-U5. Brand. The page shows the title `Request Monitor` and no mark by default, in the header
 and as the title of the browser tab (`docs/spec-service.md` OS-B9). A deployment supplies a
@@ -421,3 +421,24 @@ apply; with `--config`, the title of the file's browser tab is the configured ti
 MUST NOT ship the mark of a real organisation by default. The only marks in the repository are the
 LynShen icon and logo in `docs/images/`, which the README shows (`docs/spec-service.md` OS-B8);
 the page never loads them.
+
+## 5a. Embed page
+
+OS-E1. The path `/embed` (or `?embed=1` on any path) shows the screen small, for a frame in another
+site's page (`docs/spec-service.md` OS-SH7). Code: `web/src/ui/embed.tsx`, `web/src/core/embed.ts`.
+
+1. It shows the scene only: no header, side column, timeline, legend, notice, button, tooltip, or
+   node label. Over the top left of the scene it shows the state and three figures: requests per
+   second (OS-L1), success rate (OS-L2; left out when the gateway records no failures), and median
+   time to first token (OS-L3), each `—` until the data is ready. The state is `实时`, `准实时` for
+   a source that shows a request after it ended (OS-D5), the replay window in replay, `登录后可看`
+   when the service lets no guest in, and `正在重新连接` while the service does not answer (the page
+   retries every 10 s as in section 1a).
+2. The state and the figure labels follow `?lang=`: `zh-TW`, `en`, or `ja`; anything else is
+   Simplified Chinese. The page that embeds the screen passes its own language.
+3. One design pixel equals `clamp(0.8px, min(100vw / 1000, 100vh / 560), 1.6px)`; the scene area
+   is the whole frame below the figures.
+4. It takes no input: no drag, zoom, hover, selection, or key, and a wheel or a touch over it is
+   left to the page around it. That page links to the screen itself; the frame does not.
+5. Data, identity, theme (`?theme=`), view (`?view=`), and the drift of the scene are those of the
+   screen.

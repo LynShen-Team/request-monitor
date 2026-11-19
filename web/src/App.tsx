@@ -12,6 +12,8 @@ import { Scene3D } from "./scene/scene";
 import { useAppearance } from "./ui/appearance";
 import { FeedPanel, Legend, RankPanel, RoutePanel, SummaryPanel, ThroughputPanel } from "./ui/panels";
 import { Timeline } from "./ui/timeline";
+import { embedUi } from "./core/embed";
+import { EmbedFigures } from "./ui/embed";
 
 type Range = "live" | ReplayWindow;
 const RANGES: Array<{ id: Range; label: string }> = [
@@ -49,6 +51,8 @@ export default function App() {
   const [fullscreen, setFullscreen] = useState(false);
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const manual = params.get("clock") === "manual";
+  // The embed page (OS-E1): the scene and three figures, for a frame in another site's page.
+  const embed = /\/embed\/?$/.test(window.location.pathname) || params.get("embed") === "1";
   const initialView: ViewMode = params.get("view") === "2d" ? "2d" : "3d";
   // Null until the identity source has answered; the screen shows nothing role-dependent before.
   const [role, setRole] = useState<Role | null>(null);
@@ -87,7 +91,7 @@ export default function App() {
       const bounds = root.getBoundingClientRect();
       const center = centerRef.current!.getBoundingClientRect();
       // The same rule as --px in styles.css.
-      const ui = Math.max(0.62, Math.min(2.4, Math.min(bounds.width / 1920, bounds.height / 860)));
+      const ui = embed ? embedUi(bounds.width, bounds.height) : Math.max(0.62, Math.min(2.4, Math.min(bounds.width / 1920, bounds.height / 860)));
       scene.resize(bounds.width, bounds.height, Math.min(2, window.devicePixelRatio || 1), { x: center.left - bounds.left, y: center.top - bounds.top, w: center.width, h: center.height }, ui);
     };
     layout();
@@ -237,6 +241,8 @@ export default function App() {
     // A trackpad pinch reaches the page as a ctrl+wheel event (Chrome, Firefox) or as gesture
     // events (Safari), and by default zooms the whole page. Here it zooms the scene only, and
     // the panels keep their size. A plain scroll zooms when the pointer is over the scene.
+    // The embed page takes no input: a wheel over it scrolls the page around it (OS-E1).
+    if (embed) return;
     const root = rootRef.current!;
     const onWheel = (event: WheelEvent) => {
       if (event.ctrlKey) {
@@ -266,7 +272,7 @@ export default function App() {
       root.removeEventListener("gesturestart", onGestureStart);
       root.removeEventListener("gesturechange", onGestureChange);
     };
-  }, []);
+  }, [embed]);
 
   useEffect(() => {
     // Any use of the page holds the view where the viewer left it; left alone for a while, it
@@ -307,7 +313,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!engine) return;
+    if (!engine || embed) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "Escape") setSelectedId(null);
@@ -323,7 +329,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [engine, cycleMode]);
+  }, [engine, cycleMode, embed]);
 
   const modeLabel = mode === "auto" ? "自动" : mode === "day" ? "白天" : "夜间";
   const clockText = (hour: number) => `${Math.floor(hour)}:${String(Math.round((hour % 1) * 60)).padStart(2, "0")}`;
@@ -336,6 +342,18 @@ export default function App() {
   const scope = live ? "近 15 分钟" : snap.wholeWindow ? "整个时间窗" : "当前时段";
   // A failed refresh keeps the last data on screen; a window that never loaded has none to keep.
   const notice = snap.stale ? (snap.mode === "live" ? "实时数据暂时连不上，正在自动重试。" : snap.ready ? "数据服务暂时连不上，显示的是上一次取到的数据。" : "数据服务暂时连不上，正在自动重试。") : sources?.backfilling ? "服务还在读取更早的历史，较早的时间段可能还是空的。" : null;
+
+  if (embed) {
+    return (
+      <div ref={rootRef} className={`ops is-embed${manual ? " is-manual" : ""}`} style={theme.css as CSSProperties} data-theme={theme.id}>
+        <canvas ref={canvasRef} className="scene" />
+        <div className="scene-shade" />
+        <div ref={overlayRef} className="scene-overlay" />
+        <div ref={centerRef} className="center" />
+        <EmbedFigures snap={snap} lang={params.get("lang")} state={engine ? "open" : gate ? "gate" : failed ? "failed" : "loading"} />
+      </div>
+    );
+  }
 
   return (
     <div ref={rootRef} className={`ops${manual ? " is-manual" : ""}`} style={theme.css as CSSProperties} data-theme={theme.id}>

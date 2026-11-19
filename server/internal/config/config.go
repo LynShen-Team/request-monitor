@@ -28,6 +28,7 @@ type Config struct {
 	Geo      Geo        `toml:"geo"`
 	Ingest   Ingest     `toml:"ingest"`
 	Live     Live       `toml:"live"`
+	Embed    Embed      `toml:"embed"`
 	Screen   Screen     `toml:"screen"`
 	Upstream []Upstream `toml:"upstream"`
 	Dev      Dev        `toml:"dev"`
@@ -103,6 +104,13 @@ type Live struct {
 	IntervalSeconds int `toml:"interval_seconds"`
 	// WindowMinutes is how far back each read looks; a request that runs longer is not shown live.
 	WindowMinutes int `toml:"window_minutes"`
+}
+
+// Embed is who may show the embed page in a frame (spec OS-SH7, docs/spec-screen.md OS-E1).
+type Embed struct {
+	// Ancestors are the origins (scheme://host[:port]) of the pages that may frame /embed.
+	// Empty: no page may; every other page of the screen may never be framed.
+	Ancestors []string `toml:"ancestors"`
 }
 
 type Ingest struct {
@@ -235,6 +243,11 @@ func (c *Config) validate() error {
 			return fmt.Errorf("config: %s must be an http or https URL", key)
 		}
 	}
+	for _, ancestor := range c.Embed.Ancestors {
+		if _, err := Origin(ancestor); err != nil {
+			return fmt.Errorf("config: embed.ancestors: %w", err)
+		}
+	}
 	if !c.GuestsAllowed() && c.Gateway.APIURL == "" && c.Dev.Viewer != "admin" {
 		return fmt.Errorf("config: access.guests = false needs gateway.api_url: without it nobody can be identified and nobody could open the screen")
 	}
@@ -257,6 +270,16 @@ func (c *Config) validate() error {
 
 // LiveEnabled reports whether live mode is on.
 func (c *Config) LiveEnabled() bool { return c.Live.Enabled == nil || *c.Live.Enabled }
+
+// Origin checks that value is one http or https origin with nothing after the host, and returns it
+// as scheme://host[:port], the form a Content-Security-Policy source takes.
+func Origin(value string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(u.Host, "*; '\"") {
+		return "", fmt.Errorf("%q is not one http or https origin (scheme://host[:port])", value)
+	}
+	return u.Scheme + "://" + strings.ToLower(u.Host), nil
+}
 
 // GuestsAllowed reports whether a visitor who is not signed in may open the screen.
 func (c *Config) GuestsAllowed() bool { return c.Access.Guests == nil || *c.Access.Guests }

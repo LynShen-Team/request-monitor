@@ -47,6 +47,18 @@ func TestLoad(t *testing.T) {
 		"live.interval_seconds":  "[gateway]\ndsn = \"postgres://u@h/db\"\n[live]\ninterval_seconds = 600\n",
 		"live.window_minutes":    "[gateway]\ndsn = \"postgres://u@h/db\"\n[live]\nwindow_minutes = 1\n",
 		"needs gateway.api_url":  "[gateway]\ndsn = \"postgres://u@h/db\"\n[access]\nguests = false\n",
+		"embed.ancestors":        "[gateway]\ndsn = \"postgres://u@h/db\"\n[embed]\nancestors = [\"https://www.example.com/home\"]\n",
+	}
+	// Only one plain origin is an ancestor: no path, wildcard, keyword, or second source.
+	for _, bad := range []string{"https://www.example.com/home", "www.example.com", "ftp://example.com", "*", "https://*.example.com", "https://a.example.com 'unsafe-inline'", "https://a.example.com;script-src *", "https://u@a.example.com", "https://a.example.com/?x=1", "'self'"} {
+		if _, err := Origin(bad); err == nil {
+			t.Errorf("origin %q was accepted", bad)
+		}
+	}
+	for value, want := range map[string]string{"https://www.example.com": "https://www.example.com", " https://WWW.Example.com/ ": "https://www.example.com", "http://127.0.0.1:5173": "http://127.0.0.1:5173"} {
+		if got, err := Origin(value); err != nil || got != want {
+			t.Errorf("origin %q: %q %v, want %q", value, got, err, want)
+		}
 	}
 	for want, text := range cases {
 		if _, err := Load(write(t, text)); err == nil || !strings.Contains(err.Error(), want) {

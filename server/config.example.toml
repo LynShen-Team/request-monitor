@@ -57,6 +57,11 @@ interval_seconds = 30
 # interval_seconds = 2
 # window_minutes = 15
 
+[embed]
+# The pages that may show the embed page (/embed: the globe and three figures) in a frame, as
+# origins. Every other page of the screen can never be framed. Empty (default): none may.
+# ancestors = ["https://www.example.com"]
+
 [screen]
 # The page shows the title "Request Monitor" and no mark by default. Set your own title, a note,
 # and logo files here.

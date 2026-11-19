@@ -1006,3 +1006,72 @@ body,
   transition: none !important;
   animation: none !important;
 }
+
+/* ------------------------------------------------------------ embed page (OS-E1) */
+/* A frame of 1000 × 560 CSS pixels is 1000 × 560 design pixels; the same rule as embedUi in ui/embed.tsx. */
+.ops.is-embed {
+  --px: clamp(0.8px, min(100vw / 1000, 100vh / 560), 1.6px);
+}
+/* It takes no input: the page around it handles pointer, touch, and wheel. */
+.is-embed .scene,
+.is-embed .scene:active {
+  cursor: default;
+  touch-action: auto;
+}
+/* No labels: the frame is small, and the names are in the screen's language, not the page's. */
+.is-embed .scene-overlay {
+  visibility: hidden;
+}
+.is-embed .scene-overlay,
+.is-embed .scene-overlay * {
+  pointer-events: none !important;
+}
+.is-embed .scene-shade {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 85%, transparent) 0%, transparent 24%);
+}
+.is-embed .center {
+  left: 0;
+  right: 0;
+  top: calc(64 * var(--px));
+  bottom: 0;
+}
+.embed-figures {
+  position: absolute;
+  left: calc(20 * var(--px));
+  right: calc(20 * var(--px));
+  top: calc(14 * var(--px));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: calc(8 * var(--px)) calc(28 * var(--px));
+  pointer-events: none;
+}
+.embed-scope {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--px));
+  font-size: calc(12 * var(--px));
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.embed-label {
+  font-size: calc(11.5 * var(--px));
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.embed-value {
+  margin-top: calc(1 * var(--px));
+  font-size: calc(24 * var(--px));
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.embed-value em {
+  margin-left: calc(3 * var(--px));
+  font-style: normal;
+  font-size: calc(12 * var(--px));
+  font-weight: 400;
+  color: var(--text-2);
+}

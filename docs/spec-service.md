@@ -86,7 +86,9 @@ stream.
 
 OS-B7. Decided: the LynShen deployment is served from a subdomain of the gateway's domain (the
 owner chooses the name). The console has one entry that opens the screen in a new browser tab.
-Embedding the screen in the console is a later step.
+Decided 2026-11-20: the gateway's public home page shows the embed page (`docs/spec-screen.md`
+OS-E1) in a frame, to every visitor, and links to the screen; so guests are let in from then on
+(rule OS-B6.6), after the check that no restricted name reaches a `guest`.
 
 OS-B8. Decided: the project is published as one public repository that holds the front end and
 the service, under the Apache-2.0 licence, with a name that does not contain `LynShen` (the name is
@@ -368,7 +370,10 @@ requires (OS-B3a): for the DB-IP database `{ "text": "IP Geolocation by DB-IP", 
 
 OS-SH7. Every answer carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
 and a `Content-Security-Policy` that allows the page's own origin only and sets
-`frame-ancestors 'none'` (OS-B7: embedding is a later step).
+`frame-ancestors 'none'`. The one exception is the embed page (`docs/spec-screen.md` OS-E1): an
+answer to the path `/embed` or `/embed/` sets `frame-ancestors` to the origins of
+`embed.ancestors` (OS-SC3a), or `'none'` when there are none. Every other path, the API and the
+same page under another path included, can never be framed.
 
 OS-SH8. Any other path serves the front end; a path that is not a file serves `index.html`.
 
@@ -384,6 +389,10 @@ OS-SC2. The service listens on `127.0.0.1:8787` unless configured otherwise.
 OS-SC2a. `[live]` has `enabled` (default `true`), `interval_seconds` (default 2), and
 `window_minutes` (default 15), see section 13.
 
+OS-SC3a. `embed.ancestors` lists the origins (`scheme://host[:port]`, `http` or `https`, nothing
+after the host) of the pages that may frame the embed page. Anything else in the list (a path, a
+wildcard, a keyword, a second source in one entry) is an error. Default: empty.
+
 OS-SC3. `gateway.api_url` is the base URL of the gateway's own HTTP API, used for identification
 only. `access.guests` (default `true`) and `access.login_url` are the guest setting of OS-SN5.
 `access.guests = false` without `gateway.api_url` is an error, because nobody could open the
@@ -398,7 +407,7 @@ restricted Channel name, no upstream of a restricted route, in any answer); OS-S
 the threshold is shown as its province, a province below it as its country, a country below it
 not at all); that the store file and the answers contain no client address and none of the marker
 strings that the synthetic data writes into the columns of OS-SA2 that must not be read; and the
-HTTP API.
+HTTP API, including which paths may be framed and by whom (OS-SH7).
 
 OS-ST2. The tests of the LynShen adapter run on a SQLite file by default, and on PostgreSQL when
 `REQUEST_MONITOR_TEST_PG_DSN` (or its legacy name, OS-B9) names an empty database that the test

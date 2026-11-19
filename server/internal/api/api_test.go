@@ -160,3 +160,32 @@ func TestAPI(t *testing.T) {
 		t.Fatalf("unknown API path: %d", response.StatusCode)
 	}
 }
+
+// Only the embed page may be framed, and only by the configured pages (OS-SH7).
+func TestEmbedFraming(t *testing.T) {
+	env := testenv.New(t, testenv.Options{Days: 1, PerDay: 200, BackfillDays: 1})
+	plain := server(env, &config.Config{Listen: "127.0.0.1:8787"})
+	framed := server(env, &config.Config{Listen: "127.0.0.1:8787", Embed: config.Embed{Ancestors: []string{"https://www.example.test", "https://Docs.Example.test/"}}})
+	policy := func(s *api.Server, path string) string {
+		response, _ := get(t, s, "GET", path, nil)
+		return response.Header.Get("Content-Security-Policy")
+	}
+	for _, path := range []string{"/", "/embed", "/embed/", "/api/identity", "/api/live", "/embedded", "/embed/x", "/assets/x.js"} {
+		if got := policy(plain, path); !strings.Contains(got, "frame-ancestors 'none';") {
+			t.Errorf("no ancestors configured, %s: %s", path, got)
+		}
+	}
+	for _, path := range []string{"/embed", "/embed/", "/embed?lang=en&theme=day"} {
+		if got := policy(framed, path); !strings.Contains(got, "frame-ancestors https://www.example.test https://docs.example.test;") || !strings.Contains(got, "script-src 'self';") {
+			t.Errorf("embed page %s: %s", path, got)
+		}
+	}
+	for _, path := range []string{"/", "/api/identity", "/api/live", "/embedded", "/embed/x", "/assets/x.js", "/?embed=1"} {
+		if got := policy(framed, path); !strings.Contains(got, "frame-ancestors 'none';") {
+			t.Errorf("only the embed page may be framed, %s: %s", path, got)
+		}
+	}
+	if response, _ := get(t, framed, "GET", "/embed", nil); response.StatusCode != http.StatusOK {
+		t.Fatalf("the embed page is the page itself: %d", response.StatusCode)
+	}
+}

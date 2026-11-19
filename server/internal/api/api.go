@@ -33,6 +33,14 @@ type Server struct {
 	web         fs.FS
 	log         *slog.Logger
 	mux         *http.ServeMux
+	// The Content-Security-Policy of every response, and of the embed page (spec OS-SH7).
+	policy      string
+	embedPolicy string
+}
+
+// policyWith is the Content-Security-Policy of the service with the given frame-ancestors.
+func policyWith(ancestors string) string {
+	return "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors " + ancestors + "; base-uri 'none'; form-action 'none'"
 }
 
 // Options are the parts the server is built from.
@@ -65,6 +73,18 @@ func New(o Options) *Server {
 		web:         o.Web,
 		log:         o.Log,
 		mux:         http.NewServeMux(),
+		policy:      policyWith("'none'"),
+		embedPolicy: policyWith("'none'"),
+	}
+	// The origins were checked when the configuration was read.
+	var ancestors []string
+	for _, ancestor := range s.cfg.Embed.Ancestors {
+		if origin, err := config.Origin(ancestor); err == nil {
+			ancestors = append(ancestors, origin)
+		}
+	}
+	if len(ancestors) > 0 {
+		s.embedPolicy = policyWith(strings.Join(ancestors, " "))
 	}
 	// Without a geo database no region can be shown, whatever the gateway records.
 	s.caps.Origin = s.caps.Origin && s.geoReady
@@ -88,8 +108,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
-	// The screen is opened in its own tab; embedding it in another page is a later step.
-	h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	// Only the embed page may be framed, and only by the pages of embed.ancestors.
+	if r.URL.Path == "/embed" || r.URL.Path == "/embed/" {
+		h.Set("Content-Security-Policy", s.embedPolicy)
+	} else {
+		h.Set("Content-Security-Policy", s.policy)
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
