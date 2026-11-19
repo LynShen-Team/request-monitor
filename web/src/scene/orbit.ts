@@ -49,10 +49,12 @@ export function swingFlat(turn: Turn, dx: number, dy: number): Turn {
 }
 
 /**
- * The horizontal turns in use at `morph` (0: globe, 1: flat map). During a view switch the turn of
- * the view being left winds back to zero and that of the view being entered winds out from zero,
- * so the camera never has to cross the scene from one side of it to the other.
+ * How far the camera is turned about the vertical axis at `morph` (0: globe, 1: flat map), in
+ * degrees: the globe's turn on the globe, the map's over the map, and during a view switch the
+ * short way from one to the other. The camera's path of a switch between the default views is
+ * turned by this angle, so a switch between turned views is that same switch seen from another
+ * side: it never passes nearer to the axis, and the angle adds at most half a turn on the way.
  */
-export function turnsAt(turn: Turn, morph: number): { lon: number; yaw: number } {
-  return { lon: turn.lon * (1 - morph), yaw: turn.yaw * morph };
+export function turnAt(turn: Turn, morph: number): number {
+  return turn.lon + wrapLon(turn.yaw - turn.lon) * morph;
 }

@@ -1,6 +1,6 @@
 // Unit tests of how a drag turns the views (docs/spec-screen.md OS-M2c). Run with `bun test`.
 import { describe, expect, test } from "bun:test";
-import { FLAT_PITCH_MAX, FLAT_PITCH_MIN, GLOBE_LAT_LIMIT, START_TURN, globeLat, swingFlat, turnGlobe, turnsAt, type Turn } from "../src/scene/orbit";
+import { FLAT_PITCH_MAX, FLAT_PITCH_MIN, GLOBE_LAT_LIMIT, START_TURN, globeLat, swingFlat, turnAt, turnGlobe, type Turn } from "../src/scene/orbit";
 
 /** Drags `total` pixels across in steps of `step`, as a pointer does. */
 function drag(turn: Turn, total: number, step: number, move: (turn: Turn, dx: number) => Turn): Turn {
@@ -82,20 +82,33 @@ describe("flat map", () => {
 });
 
 describe("view switch", () => {
-  const turned: Turn = { lon: 180, lat: 20, yaw: -170, pitch: 40 };
+  const same = (a: number, b: number) => expect(Math.abs(((a - b + 540) % 360) - 180)).toBeLessThan(1e-9);
 
-  test("each view shows its own turn when it is on screen", () => {
-    expect(turnsAt(turned, 0)).toEqual({ lon: 180, yaw: -0 });
-    expect(turnsAt(turned, 1)).toEqual({ lon: 0, yaw: -170 });
+  test("each view is turned by its own turn when it is on screen", () => {
+    const turned: Turn = { lon: 120, lat: 20, yaw: -150, pitch: 40 };
+    same(turnAt(turned, 0), 120);
+    same(turnAt(turned, 1), -150);
   });
 
-  test("the turn of the view being left winds back, that of the view being entered winds out", () => {
-    let last = turnsAt(turned, 0);
-    for (let i = 1; i <= 20; i++) {
-      const now = turnsAt(turned, i / 20);
-      expect(Math.abs(now.lon)).toBeLessThan(Math.abs(last.lon));
-      expect(Math.abs(now.yaw)).toBeGreaterThan(Math.abs(last.yaw));
-      last = now;
+  test("during a switch the turn goes the short way, steadily, by at most half a turn", () => {
+    for (const [lon, yaw] of [[180, -170], [120, -150], [-170, 170], [0, 180], [90, 90], [10, -10]] as const) {
+      const turned: Turn = { lon, lat: 0, yaw, pitch: 56 };
+      const way = Math.abs(((yaw - lon + 540) % 360) - 180);
+      let travelled = 0;
+      for (let i = 1; i <= 100; i++) {
+        const step = Math.abs(((turnAt(turned, i / 100) - turnAt(turned, (i - 1) / 100) + 540) % 360) - 180);
+        // Even steps: no part of the switch turns faster than another.
+        expect(step).toBeCloseTo(way / 100, 9);
+        travelled += step;
+      }
+      expect(travelled).toBeCloseTo(way, 9);
+      expect(travelled).toBeLessThanOrEqual(180);
     }
+  });
+
+  test("untouched views switch as before", () => {
+    expect(turnAt(START_TURN, 0)).toBe(0);
+    expect(turnAt(START_TURN, 0.5)).toBe(0);
+    expect(turnAt(START_TURN, 1)).toBe(0);
   });
 });

@@ -258,11 +258,13 @@ OS-M2c. Turning (`web/src/scene/orbit.ts`). The frame of OS-M2b is where a drag 
    stays from 26 to 80 degrees above the map.
 3. The scene drifts slowly by itself and the drift adds to the drag: on the globe by up to 7 degrees
    of longitude and 2.2 degrees of latitude, over the map by up to 5 degrees of turn.
-4. Each view keeps its own turn while the other is shown. During a view switch the horizontal turn
-   of the view being left winds back to zero and that of the view being entered winds out from
-   zero, so a switch from a turned view swings round no faster than one from the default views and
-   the camera does not jump over the scene from the far side. Nothing else turns the scene back: a
-   turn stays until the viewer drags it back or opens the page again.
+4. The horizontal turn turns the camera about the vertical axis through the point it looks at.
+   Each view keeps its own turn while the other is shown. During a view switch the camera takes the
+   path of the switch between the default views, turned by an angle that goes evenly the short way
+   (at most half a turn) from the turn of the view being left to that of the view being entered.
+   So a switch between turned views is the default switch seen from another side: the camera
+   comes no nearer to the axis than there and does not jump over the scene. Nothing else turns the
+   scene back: a turn stays until the viewer drags it back or opens the page again.
 5. From any side, only what faces the camera is drawn: on the globe a node, its label, its rings,
    and pulses fade out over the limb, arcs pass behind the Earth, and a comet head hides there; over
    the map a node behind the camera is not shown. Only a node that is shown is a pointer target

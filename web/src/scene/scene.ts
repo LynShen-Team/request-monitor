@@ -14,7 +14,7 @@ import {
   SURFACE_VERTEX,
 } from "./shaders";
 import { FLAT_CENTRE_Y, FLAT_S, FLAT_TARGET_Z, FOV, START_FRAME, fitFlat, frameFor, type FlatFit, type Frame, type FramePoint } from "./frame";
-import { START_TURN, globeLat, swingFlat, turnGlobe, turnsAt, type Turn } from "./orbit";
+import { START_TURN, globeLat, swingFlat, turnAt, turnGlobe, type Turn } from "./orbit";
 import type { Theme } from "./theme";
 
 // Colours are authored in sRGB and blended as such, so a hex value looks the same here and in CSS.
@@ -1074,18 +1074,21 @@ export class Scene3D implements FlowView {
     const tanHalf = Math.tan((FOV * DEG) / 2);
     const zf = Math.min(this.zoomFactor, MAX_ZOOM + (Math.min(MAX_ZOOM, this.flat.maxZoom) - MAX_ZOOM) * m);
     const distance = (1 / Math.sin(Math.atan((radiusPx / (this.height / 2)) * tanHalf))) * zf;
-    // The drag's turn, plus a slow drift; during a view switch the turn of the view being left
-    // winds back, so the camera does not cross the scene when the far side was on screen.
-    const turns = turnsAt(this.turn, m);
-    globePoint(this.frame.camLon + turns.lon + Math.sin(now / 23000) * 7, globeLat(this.frame.camLat, this.turn.lat) + Math.sin(now / 31000) * 2.2, this.camGlobe, distance);
+    // Untouched by a horizontal drag, with a slow drift: the globe's camera above the frame, the
+    // flat camera south of the map; tilted as dragged.
+    globePoint(this.frame.camLon + Math.sin(now / 23000) * 7, globeLat(this.frame.camLat, this.turn.lat) + Math.sin(now / 31000) * 2.2, this.camGlobe, distance);
     const reach = this.flat.reach * zf;
-    const yaw = (turns.yaw + Math.sin(now / 27000) * 5) * DEG;
+    const yaw = Math.sin(now / 27000) * 5 * DEG;
     const pitch = this.turn.pitch * DEG;
     this.camTarget.set(0, 0, FLAT_TARGET_Z);
     this.camFlat.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(reach).add(this.camTarget);
     this.camera.position.copy(this.camGlobe).lerp(this.camFlat, m);
+    const look = this.tmpA.set(0, 0, 0).lerp(this.camTarget, m);
+    // The horizontal drag turns that camera about the vertical axis through the point it looks at:
+    // about the Earth's axis on the globe, about the map's centre over the map (OS-M2c).
+    this.camera.position.sub(look).applyAxisAngle(UP, turnAt(this.turn, m) * DEG).add(look);
     this.camera.up.copy(UP);
-    this.camera.lookAt(this.tmpA.set(0, 0, 0).lerp(this.camTarget, m));
+    this.camera.lookAt(look);
     const cx = safe.x + safe.w / 2;
     const cy = safe.y + safe.h * (FLAT_CENTRE_Y + 0.01 * (1 - m));
     this.camera.setViewOffset(this.width, this.height, this.width / 2 - cx, this.height / 2 - cy, this.width, this.height);
