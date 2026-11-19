@@ -14,7 +14,7 @@ import {
   SURFACE_VERTEX,
 } from "./shaders";
 import { FLAT_CENTRE_Y, FLAT_S, FLAT_TARGET_Z, FOV, START_FRAME, fitFlat, frameFor, type FlatFit, type Frame, type FramePoint } from "./frame";
-import { START_TURN, globeLat, swingFlat, turnAt, turnGlobe, type Turn } from "./orbit";
+import { Homing, START_TURN, globeLat, swingFlat, turnAt, turnGlobe, type Turn } from "./orbit";
 import type { Theme } from "./theme";
 
 // Colours are authored in sRGB and blended as such, so a hex value looks the same here and in CSS.
@@ -181,6 +181,8 @@ export class Scene3D implements FlowView {
   /** What pointer drags have turned, in both views (see `orbit.ts`). */
   private turn: Turn = START_TURN;
   private zoomFactor = 1;
+  /** Turns and zoom go back to the start when nobody uses the page for a while (OS-M2c.6). */
+  private readonly homing = new Homing();
   private frame: Frame = START_FRAME;
   /** The nodes both views must show, and how far back the flat camera stands to show them. */
   private keyPoints: FramePoint[] = [];
@@ -628,7 +630,13 @@ export class Scene3D implements FlowView {
    * goes all the way round; the tilt is limited (OS-M2c).
    */
   orbit(dx: number, dy: number) {
+    this.homing.use();
     this.turn = this.view === "3d" ? turnGlobe(this.turn, dx, dy, this.frame.camLat) : swingFlat(this.turn, dx, dy);
+  }
+
+  /** Someone used the page (a press, a pointer move, a wheel, a key): the view stays as it is. */
+  noteUse() {
+    this.homing.use();
   }
 
   /** What drags have turned (read by the browser checks). */
@@ -637,6 +645,7 @@ export class Scene3D implements FlowView {
   }
 
   zoom(delta: number) {
+    this.homing.use();
     // The flat map does not zoom out past the width of its mesh.
     const max = this.view === "2d" ? Math.min(MAX_ZOOM, this.flat.maxZoom) : MAX_ZOOM;
     this.zoomFactor = Math.max(0.6, Math.min(max, this.zoomFactor * Math.exp(delta * 0.0012)));
@@ -1066,6 +1075,11 @@ export class Scene3D implements FlowView {
     this.uTime.value = now / 1000;
     const fade = (2 * m - 1) ** 2;
     this.uFade.value = fade;
+
+    // Left alone for a while, the turns and the zoom ease back to the start (OS-M2c.6).
+    const pose = this.homing.step(now, { turn: this.turn, zoom: this.zoomFactor });
+    this.turn = pose.turn;
+    this.zoomFactor = pose.zoom;
 
     // Camera: orbit around the globe, or look down at the map from the south.
     const safe = this.safe;

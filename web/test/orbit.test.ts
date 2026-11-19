@@ -1,6 +1,6 @@
 // Unit tests of how a drag turns the views (docs/spec-screen.md OS-M2c). Run with `bun test`.
 import { describe, expect, test } from "bun:test";
-import { FLAT_PITCH_MAX, FLAT_PITCH_MIN, GLOBE_LAT_LIMIT, START_TURN, globeLat, swingFlat, turnAt, turnGlobe, type Turn } from "../src/scene/orbit";
+import { FLAT_PITCH_MAX, FLAT_PITCH_MIN, GLOBE_LAT_LIMIT, HOME_MS, Homing, IDLE_MS, START_POSE, START_TURN, atStart, globeLat, homeward, swingFlat, turnAt, turnGlobe, type Pose, type Turn } from "../src/scene/orbit";
 
 /** Drags `total` pixels across in steps of `step`, as a pointer does. */
 function drag(turn: Turn, total: number, step: number, move: (turn: Turn, dx: number) => Turn): Turn {
@@ -110,5 +110,84 @@ describe("view switch", () => {
     expect(turnAt(START_TURN, 0)).toBe(0);
     expect(turnAt(START_TURN, 0.5)).toBe(0);
     expect(turnAt(START_TURN, 1)).toBe(0);
+  });
+});
+
+describe("return when left alone (OS-M2c.6)", () => {
+  const FRAME = 1000 / 30;
+  const turned: Pose = { turn: { lon: -170, lat: -30, yaw: 180, pitch: 70 }, zoom: 0.7 };
+
+  /** Runs the scene's frames from `from` to `to` (ms), the viewer's pose held by `pose`. */
+  function run(homing: Homing, pose: Pose, from: number, to: number, seen?: Pose[]): Pose {
+    for (let now = from; now <= to; now += FRAME) {
+      pose = homing.step(now, pose);
+      seen?.push(pose);
+    }
+    return pose;
+  }
+
+  test("goes straight back the short way, and reaches the start exactly", () => {
+    expect(homeward(turned, 0)).toEqual(turned);
+    const half = homeward(turned, 0.5);
+    // -170 goes up through -85 to 0, never across 180.
+    expect(half.turn.lon).toBeCloseTo(-85, 9);
+    expect(half.turn.lat).toBeCloseTo(-15, 9);
+    expect(half.turn.yaw).toBeCloseTo(90, 9);
+    expect(half.turn.pitch).toBeCloseTo((70 + START_TURN.pitch) / 2, 9);
+    expect(half.zoom).toBeCloseTo(Math.sqrt(0.7), 9);
+    expect(homeward(turned, 1)).toBe(START_POSE);
+    expect(atStart(START_POSE)).toBe(true);
+    expect(atStart(turned)).toBe(false);
+    expect(atStart({ turn: START_TURN, zoom: 1.2 })).toBe(false);
+  });
+
+  test("waits the idle time after the last use, then eases back in time", () => {
+    const homing = new Homing();
+    homing.step(0, turned);
+    const seen: Pose[] = [];
+    let pose = run(homing, turned, FRAME, IDLE_MS - FRAME, seen);
+    expect(pose).toEqual(turned);
+    pose = run(homing, pose, IDLE_MS, IDLE_MS + HOME_MS + FRAME, seen);
+    expect(pose).toBe(START_POSE);
+    // Each frame moves the same way, no faster than 1.5 times the mean pace (plus rounding).
+    const mean = (170 * FRAME) / HOME_MS;
+    for (let i = 1; i < seen.length; i++) {
+      const step = seen[i]!.turn.lon - seen[i - 1]!.turn.lon;
+      expect(step).toBeGreaterThanOrEqual(0);
+      expect(step).toBeLessThanOrEqual(1.5 * mean + 1e-9);
+    }
+    // At the start it stays there.
+    expect(run(homing, pose, IDLE_MS + HOME_MS + 2 * FRAME, 3 * IDLE_MS)).toBe(START_POSE);
+  });
+
+  test("any use starts the wait again", () => {
+    const homing = new Homing();
+    homing.step(0, turned);
+    let pose = run(homing, turned, FRAME, IDLE_MS - 10_000);
+    homing.use();
+    pose = run(homing, pose, IDLE_MS - 10_000 + FRAME, 2 * IDLE_MS - 20_000);
+    expect(pose).toEqual(turned);
+    pose = run(homing, pose, 2 * IDLE_MS - 20_000 + FRAME, 2 * IDLE_MS + HOME_MS);
+    expect(pose).toBe(START_POSE);
+  });
+
+  test("a use on the way stops the return where it is", () => {
+    const homing = new Homing();
+    homing.step(0, turned);
+    let pose = run(homing, turned, FRAME, IDLE_MS + HOME_MS / 2);
+    expect(pose.turn.lon).toBeGreaterThan(-170);
+    expect(pose.turn.lon).toBeLessThan(0);
+    homing.use();
+    const held = pose;
+    pose = run(homing, pose, IDLE_MS + HOME_MS / 2 + FRAME, 2 * IDLE_MS);
+    expect(pose).toEqual(held);
+    // Left alone again, it goes the rest of the way.
+    pose = run(homing, pose, 2 * IDLE_MS + FRAME, 3 * IDLE_MS);
+    expect(pose).toBe(START_POSE);
+  });
+
+  test("an untouched view never moves", () => {
+    const homing = new Homing();
+    expect(run(homing, START_POSE, 0, 3 * IDLE_MS)).toBe(START_POSE);
   });
 });

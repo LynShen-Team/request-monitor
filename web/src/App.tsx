@@ -269,6 +269,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Any use of the page holds the view where the viewer left it; left alone for a while, it
+    // goes back to the start (OS-M2c.6). A pointer resting on the screen is no use, even when the
+    // browser sends it a move because what is under it changed: only a move to a new place counts.
+    const kinds = ["pointerdown", "pointermove", "wheel", "keydown", "gesturestart"];
+    let lastX = Number.NaN;
+    let lastY = Number.NaN;
+    const onUse = (event: Event) => {
+      if (event instanceof PointerEvent && event.type === "pointermove") {
+        if (event.clientX === lastX && event.clientY === lastY) return;
+        lastX = event.clientX;
+        lastY = event.clientY;
+      }
+      sceneRef.current?.noteUse();
+    };
+    for (const kind of kinds) window.addEventListener(kind, onUse, { capture: true, passive: true });
+    return () => {
+      for (const kind of kinds) window.removeEventListener(kind, onUse, { capture: true });
+    };
+  }, []);
+
+  useEffect(() => {
     const onChange = () => setFullscreen(document.fullscreenElement !== null);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);

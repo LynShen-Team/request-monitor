@@ -58,3 +58,73 @@ export function swingFlat(turn: Turn, dx: number, dy: number): Turn {
 export function turnAt(turn: Turn, morph: number): number {
   return turn.lon + wrapLon(turn.yaw - turn.lon) * morph;
 }
+
+/** Nobody has used the page for this long: the view goes back to where it starts (OS-M2c.6). */
+export const IDLE_MS = 180_000;
+/** How long the way back takes. */
+export const HOME_MS = 5000;
+
+/** What the viewer can change of the camera: the turns of both views and the zoom factor. */
+export interface Pose {
+  turn: Turn;
+  zoom: number;
+}
+
+export const START_POSE: Pose = { turn: START_TURN, zoom: 1 };
+
+const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+export function atStart(pose: Pose): boolean {
+  const { turn } = pose;
+  return near(turn.lon, 0) && near(turn.lat, 0) && near(turn.yaw, 0) && near(turn.pitch, START_TURN.pitch) && near(pose.zoom, 1);
+}
+
+/**
+ * The pose `share` (0..1) of the way from `from` back to the start. The angles were kept from
+ * −180 to 180, so going straight to 0 is the short way round; the zoom goes evenly in scale.
+ */
+export function homeward(from: Pose, share: number): Pose {
+  if (share >= 1) return START_POSE;
+  const keep = 1 - share;
+  const { turn } = from;
+  return {
+    turn: { lon: turn.lon * keep, lat: turn.lat * keep, yaw: turn.yaw * keep, pitch: START_TURN.pitch + (turn.pitch - START_TURN.pitch) * keep },
+    zoom: from.zoom ** keep,
+  };
+}
+
+/**
+ * The return to the start when the page is left alone: `use()` on every use of the page (a press,
+ * a pointer move, a wheel, a key), `step()` once per frame with the scene's clock. IDLE_MS after
+ * the last use the pose eases back over HOME_MS; a use on the way stops it where it is.
+ */
+export class Homing {
+  private used = true;
+  private usedAt = 0;
+  private from: Pose | null = null;
+  private fromAt = 0;
+
+  use() {
+    this.used = true;
+  }
+
+  /** The pose to draw at `now`, given the pose as the viewer left it. */
+  step(now: number, pose: Pose): Pose {
+    if (this.used) {
+      this.used = false;
+      this.usedAt = now;
+      this.from = null;
+      return pose;
+    }
+    if (this.from === null) {
+      if (now - this.usedAt < IDLE_MS || atStart(pose)) return pose;
+      this.from = pose;
+      this.fromAt = now;
+    }
+    const from = this.from;
+    const t = Math.min(1, (now - this.fromAt) / HOME_MS);
+    if (t >= 1) this.from = null;
+    // Eased at both ends: it starts and stops gently, at most 1.5 times its mean pace.
+    return homeward(from, t * t * (3 - 2 * t));
+  }
+}

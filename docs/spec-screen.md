@@ -213,7 +213,8 @@ scene, a wheel event with the control key anywhere on the page (a trackpad pinch
 gesture event all zoom the scene and have their default action prevented, so the page itself is
 never zoomed and the panels keep their size. Node markers are scaled by the zoom factor, so they
 keep their size on screen. In the flat view the largest factor is lower when the canvas would
-otherwise show more than the width of the map (540 degrees less 12).
+otherwise show more than the width of the map (540 degrees less 12). The zoom goes back to 1 when
+the page is left alone (OS-M2c.6).
 
 OS-M2b. Framing. Where the views look is computed from the nodes (`web/src/scene/frame.ts`), so a
 gateway anywhere on Earth is in the picture without a setting. The key points are the gateway,
@@ -263,14 +264,21 @@ OS-M2c. Turning (`web/src/scene/orbit.ts`). The frame of OS-M2b is where a drag 
    path of the switch between the default views, turned by an angle that goes evenly the short way
    (at most half a turn) from the turn of the view being left to that of the view being entered.
    So a switch between turned views is the default switch seen from another side: the camera
-   comes no nearer to the axis than there and does not jump over the scene. Nothing else turns the
-   scene back: a turn stays until the viewer drags it back or opens the page again.
+   comes no nearer to the axis than there and does not jump over the scene. A turn stays until the
+   viewer drags it back, the page is left alone (rule 6), or the page is opened again.
 5. From any side, only what faces the camera is drawn: on the globe a node, its label, its rings,
    and pulses fade out over the limb, arcs pass behind the Earth, and a comet head hides there; over
    the map a node behind the camera is not shown. Only a node that is shown is a pointer target
    (OS-I1), and the hover tooltip and focus rings follow the same rule. Labels are placed on
    screen, beside their node, from any side. The globe's shading on the `day` theme comes from the
    upper left of the screen, not from a place on Earth, so the far side is lit the same way.
+6. Return. When nobody has used the page for 3 minutes, the turns and tilts of both views and the
+   zoom factor (OS-M2a) go back to where they start, over 5 seconds, starting and stopping gently
+   (at most 1.5 times the mean pace). A use is a pointer press or move anywhere on the page, a
+   wheel or gesture event, or a key; a pointer resting on the screen is none. The angles go
+   straight back to 0, which is the short way round because they are kept from −180 to 180
+   degrees; the zoom goes evenly in scale. A use on the way stops the return where it is, and the
+   3 minutes start again. The view (`3d` or `2d`), the time range, and a selected node are kept.
 
 OS-M3. An upstream site within 1.5 degrees of the gateway is co-located: it is drawn as a ring
 around the gateway, labelled `同机房上游`, and has no arc. Any other upstream site closer than 7.5
